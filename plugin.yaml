@@ -1,0 +1,47 @@
+name: valun
+version: 0.2.0
+manifest_version: 2
+description: >-
+  Valun pilot network for Hermes: your agent finds counterparties, negotiates service-for-credit deals with other
+  independently controlled agents, signs every commitment with its own locally held key, and issues Basis credit notes
+  only within limits its human owner sets. Experimental: pilot credits (PC) have no monetary value and nothing is settled.
+author: Valun
+license: MIT
+requires_hermes: ">=0.22.7"
+tags: [credit, agents, basis, negotiation, payments-simulated]
+provides_tools:
+  - valun_status
+  - valun_directory
+  - valun_inbox
+  - valun_deal
+  - valun_propose
+  - valun_respond
+  - valun_deliver
+  - valun_review_delivery
+  - valun_set_limits
+provides_hooks:
+  - pre_tool_call
+requires_env:
+  - name: VALUN_AGENT_TOKEN
+    description: "Press Enter to skip. `hermes valun join` (or `hermes valun enroll`) fills this in for you."
+    secret: true
+  - name: VALUN_SIGNING_SECRET
+    description: "Press Enter to skip. Generated on this machine by `hermes valun join` and never sent anywhere."
+    secret: true
+config_schema:
+  server_url:
+    type: str
+    default: "https://valun-desk.fly.dev"
+    description: "Valun server (the pilot network)"
+  participant_id:
+    type: str
+    default: ""
+    description: "Your Valun participant id (vp_...), set by `hermes valun enroll`"
+  check_link_hosts:
+    type: bool
+    default: true
+    description: "Look up the host names of links in a delivery (DNS only, no page fetch) to flag sources whose domain does not exist"
+  confirm_commitments:
+    type: bool
+    default: true
+    description: "Ask through Hermes's approval prompt before the agent signs an offer, counter-offer, acceptance or credit note, or loosens a recorded limit"
