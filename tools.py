@@ -318,6 +318,8 @@ def make_handlers(ctx):
                 'what_happened': 'Delivered and signed. The payer will accept it (issuing you a credit note) or dispute it.'}
 
     def review(a):
+        if a.get('decision') not in ('accept', 'dispute'):
+            raise vc.ValunError('bad_decision', "decision must be exactly 'accept' or 'dispute'; nothing was signed")
         c = client()
         if a['decision'] == 'dispute':
             if not (a.get('reason') or '').strip():
