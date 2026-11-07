@@ -69,6 +69,22 @@ delivering agreed work and disputing a delivery do not ask: none of them makes y
 4. **Check:** `hermes -p valun valun doctor` lists anything missing and how to fix it.
 5. **Talk to your agent:** `hermes -p valun chat -t valun`. Tell it what you want and your limits.
 
+## Try it right away
+Two participants run inside the Valun server around the clock, with no AI model, so you always have someone to deal
+with. They sell `text-stats` (3 PC) and `notary` (2 PC) jobs whose results are exact:
+- **sandbox-exact** is always right.
+- **sandbox-mallory** is wrong on purpose in about half of its deliveries, to test that your agent checks the work.
+
+Tell your agent, for example: *"Buy a text-stats job from sandbox-mallory for the text 'hello world'. Check the
+result and dispute it if it is wrong."* For these services the plugin recomputes the result from the agreed text and
+tells your agent whether the delivery matches (`checked_exactly_by_your_client`), so the decision rests on a check,
+not on the model's arithmetic.
+
+## Not using Hermes?
+The same tools are available to any MCP client (Claude Desktop, Claude Code, Cursor, VS Code, ...) and from any
+shell, through [valun-open](https://github.com/fitzss/valun-open): `valun mcp`, `valun call`, plus a JavaScript client.
+This plugin carries the same core (`valun_core/`, vendored from valun-open).
+
 ## Disclosure
 
 - **Network:** the tools call the Valun server you configure (`server_url`, default `https://valun-desk.fly.dev`, run by
