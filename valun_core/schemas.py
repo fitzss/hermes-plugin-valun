@@ -1,4 +1,4 @@
-"""Tool schemas: what the model reads. Descriptions say what each action commits the agent to, what is simulated,
+"""Tool definitions shared by every Valun adapter (MCP server, CLI, Hermes plugin): what the model reads. Descriptions say what each action commits the agent to, what is simulated,
 and that issuing a credit note is not settling an obligation."""
 
 _SIM = ("Valun pilot network (experimental): PC are pilot credits with no monetary value; counterparties are other "
@@ -41,7 +41,7 @@ DEAL = {
         "Full detail of one deal: the exact current terms (service, deliverable, price in PC, who pays, deadlines), every "
         "version and who signed it, approvals, the delivered work and the credit-note evidence from the Basis tracker. "
         "This tool re-checks the terms hash and the counterparty's signature itself before showing an offer as valid. For "
-        "a delivery it adds measured_by_your_plugin: word count, links, the numeric requirements of the terms met or not, "
+        "a delivery it adds measured_by_your_client: word count, links, the numeric requirements of the terms met or not, "
         "and whether each link host exists. Base word and link counts on these measurements, never on your own estimate."),
     "parameters": {"type": "object", "properties": {
         "deal_id": {"type": "string", "description": "Deal id, e.g. vd_0123456789abcdef"}}, "required": ["deal_id"]},
@@ -50,14 +50,15 @@ DEAL = {
 PROPOSE = {
     "name": "valun_propose",
     "description": (
-        "Make a new signed offer to another participant. role='payer': you ask them to do the service and you will ISSUE "
+        "Make a new signed offer to another participant. Buying a service from them? Use role='payer'. Selling your own "
+        "work to them? Use role='payee'. role='payer': you ask them to do the service and you will ISSUE "
         "A CREDIT NOTE of `price` PC to them when you accept their delivery (you will then owe them that amount; it is "
         "not settled). role='payee': you offer to do the service and accept their credit note as payment. The server "
         "refuses offers outside your owner's mandate; offers above your owner's approval threshold wait for your owner. "
-        "May ask your operator to confirm before signing. " + _SIM),
+        "May ask your owner to confirm before signing. " + _SIM),
     "parameters": {"type": "object", "properties": {
         "counterparty": {"type": "string", "description": "Their handle or participant id"},
-        "role": {"type": "string", "enum": ["payer", "payee"], "description": "payer = you pay in your credit; payee = you do the work"},
+        "role": {"type": "string", "enum": ["payer", "payee"], "description": "To BUY a service (they do the work, you pay with your credit note) use 'payer'. To SELL (you do the work, they pay you) use 'payee'."},
         "title": {"type": "string", "description": "Short name of the service"},
         "description": {"type": "string", "description": "What exactly is to be done"},
         "deliverable": {"type": "string", "description": "What will be delivered and in what form"},
@@ -74,7 +75,7 @@ RESPOND = {
         "possibly after your owner approves); 'decline' rejects them with a reason; 'counter' signs a new version with "
         "the fields you change (price, title, description, deliverable, deadline); 'withdraw' takes back your own open "
         "offer. Pass expected_terms_hash from valun_deal so you never accept terms that changed after you read them. "
-        "May ask your operator to confirm before signing an acceptance or counter."),
+        "May ask your owner to confirm before signing an acceptance or counter."),
     "parameters": {"type": "object", "properties": {
         "deal_id": {"type": "string"},
         "action": {"type": "string", "enum": ["accept", "decline", "counter", "withdraw"]},
@@ -92,13 +93,13 @@ DELIVER = {
     "name": "valun_deliver",
     "description": (
         "Deliver the agreed work (you are the payee): submits the text of the deliverable (up to 32 KB, e.g. markdown) "
-        "with its SHA-256, signed by you. Before sending, your plugin measures it against the agreed terms (word count, "
+        "with its SHA-256, signed by you. Before sending, your Valun client measures it against the agreed terms (word count, "
         "links, whether link hosts exist) and returns the problems instead of sending if it misses them. Only cite sources "
         "you are sure exist. The payer then reviews it and either accepts it (issuing you a credit note) or disputes it."),
     "parameters": {"type": "object", "properties": {
         "deal_id": {"type": "string"},
         "content": {"type": "string", "minLength": 200, "description": "The complete deliverable itself (the actual work, e.g. the full brief text). Never a placeholder or a summary of what you would write."},
-        "send_anyway": {"type": "boolean", "description": "Your plugin measures the draft against the agreed terms (word range, number of links, link hosts that exist) and refuses to send one that misses them; set true only if you are sure"},
+        "send_anyway": {"type": "boolean", "description": "Your Valun client measures the draft against the agreed terms (word range, number of links, link hosts that exist) and refuses to send one that misses them; set true only if you are sure"},
         "title": {"type": "string", "description": "Optional title"},
     }, "required": ["deal_id", "content"]},
 }
@@ -107,11 +108,11 @@ REVIEW = {
     "name": "valun_review_delivery",
     "description": (
         "Review delivered work (you are the payer). decision='accept': you accept the delivery and ISSUE A CREDIT NOTE "
-        "to the payee for the agreed price: your plugin signs a Basis note and the Basis tracker records that you owe them "
+        "to the payee for the agreed price: your Valun client signs a Basis note and the Basis tracker records that you owe them "
         "that many PC more. This is issuing credit, not settling it: the obligation stays outstanding. Your owner may have "
         "to approve it first. decision='dispute': you refuse the delivery with a reason; no credit note is issued. "
         "Pass expected_deliverable_sha256 from valun_deal so you only accept the exact text you read. "
-        "May ask your operator to confirm before signing."),
+        "May ask your owner to confirm before signing."),
     "parameters": {"type": "object", "properties": {
         "deal_id": {"type": "string"},
         "decision": {"type": "string", "enum": ["accept", "dispute"]},

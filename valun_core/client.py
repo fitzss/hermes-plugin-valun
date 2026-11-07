@@ -15,10 +15,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
-try:
-    from . import valun_basis as vb  # inside the Hermes plugin package
-except ImportError:
-    import valun_basis as vb  # standalone
+from . import basis as vb
 
 NETWORK = 'valun-pilot-1'
 PROTOCOL = 'valun-deal/1'

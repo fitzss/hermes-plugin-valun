@@ -4,7 +4,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import measure  # noqa: E402
+from valun_core import measure  # noqa: E402
 
 TERMS = 'Research brief. 300-500 word research brief with at least 3 cited sources each with a working-looking link'
 

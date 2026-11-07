@@ -4,7 +4,7 @@ Basis is released under CC0-1.0). Run: python -m unittest test_valun_basis"""
 import unittest
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import valun_basis as vb  # noqa: E402
+from valun_core import basis as vb  # noqa: E402
 
 ALICE = bytes.fromhex('02fc84de78d191f6b47b6ba97bf1eb5ba3b541c8ca247461f41dafdd6db11bc063')
 BOB = bytes.fromhex('023bc6f9ff8a2af3992d23c145de5a868bae6b80a3dd3b24a1de4c6486472e9dbd')

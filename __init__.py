@@ -10,7 +10,8 @@ import secrets
 import subprocess
 import sys
 
-from . import schemas, tools, valun_client as vc
+from . import tools
+from .valun_core import schemas, client as vc
 
 logger = logging.getLogger(__name__)
 
