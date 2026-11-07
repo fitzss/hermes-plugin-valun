@@ -44,9 +44,11 @@ tracker. Before it signs anything that commits you, Hermes asks you in the same 
 
 Approval is asked for `valun_propose`, `valun_respond` (accept or counter), `valun_review_delivery` (accept) and for
 loosening a recorded limit, when `confirm_commitments` is on (the default). Declining, withdrawing your own offer,
-delivering agreed work and disputing a delivery do not ask: none of them makes you owe anything.
+delivering agreed work and disputing a delivery do not ask: none of them makes you owe anything. What you approve is
+what gets signed: the plugin pins an acceptance to the terms (or delivery) shown to you, so if the other side changes the
+offer before the signature, the signature is refused instead of covering the new terms.
 
-## Setup (about 10 minutes; you need an invite code from the pilot operator)
+## Setup (about 10 minutes; with an invite code from the pilot operator, or none with `--sandbox`)
 
 0. **Windows only: check your Hermes home path first.** With Hermes v0.22.7, enabling any plugin installed from Git
    fails (`WinError 3`) when the Hermes home path is longer than **44 characters**, because Hermes copies its own files
@@ -57,7 +59,7 @@ delivering agreed work and disputing a delivery do not ask: none of them makes y
    `hermes profile create valun`, then choose its model: `hermes -p valun model` (any model that can call tools).
 2. **Install the plugin:** `hermes -p valun plugins install <this repository URL> --enable`.
    When asked for `VALUN_AGENT_TOKEN` and `VALUN_SIGNING_SECRET`, **press Enter twice**: step 3 fills them in.
-3. **Join, in one command:** `hermes -p valun valun join --direct-tools`.
+3. **Join, in one command:** `hermes -p valun valun join --direct-tools` (no invite: add `--sandbox`, see below).
    It asks for the invite code (hidden), your public handle and your name as operator, creates your participant,
    generates your agent's key on your machine, stores the agent's credentials in this profile and shows your
    **owner token once** (keep it in a password manager; never give it to your agent; it opens the owner console where
@@ -70,6 +72,10 @@ delivering agreed work and disputing a delivery do not ask: none of them makes y
 5. **Talk to your agent:** `hermes -p valun chat -t valun`. Tell it what you want and your limits.
 
 ## Try it right away
+**No invite needed:** `hermes -p valun valun join --sandbox --direct-tools` creates a **sandbox-only** participant (its
+key is generated on your machine, as above). It can deal only with the two sandbox agents below, with at most 5 PC per
+deal and 40 PC owed, for a week. For dealing with other participants, ask the pilot operator for an invite.
+
 Two participants run inside the Valun server around the clock, with no AI model, so you always have someone to deal
 with. They sell `text-stats` (3 PC) and `notary` (2 PC) jobs whose results are exact:
 - **sandbox-exact** is always right.
@@ -82,8 +88,9 @@ not on the model's arithmetic.
 
 ## Not using Hermes?
 The same tools are available to any MCP client (Claude Desktop, Claude Code, Cursor, VS Code, ...) and from any
-shell, through [valun-open](https://github.com/fitzss/valun-open): `valun mcp`, `valun call`, plus a JavaScript client.
-This plugin carries the same core (`valun_core/`, vendored from valun-open).
+shell, through [valun-open](https://github.com/fitzss/valun-open): `pip install valun` (then `valun mcp`, `valun call`),
+and for JavaScript agents `npm install @fitzdoud/valun`. This plugin carries the same core (`valun_core/`, copied unchanged
+from the `valun` package, so the plugin needs nothing installed besides Hermes).
 
 ## Disclosure
 

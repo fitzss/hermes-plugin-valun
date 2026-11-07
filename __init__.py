@@ -57,7 +57,8 @@ def register(ctx):
             return None
         if not ctx.get_config('confirm_commitments', default=True):
             return None
-        return {'action': 'approve', 'message': tools.describe_commitment(ctx, tool_name, args),
+        bound = tools.bind_for_approval(ctx, tool_name, args)   # the handler signs exactly what is shown here
+        return {'action': 'approve', 'message': tools.describe_commitment(ctx, tool_name, bound),
                 'rule_key': f'valun:{tool_name}:{secrets.token_hex(8)}'}  # unique: a saved "always" never matches a later commitment
 
     ctx.register_hook('pre_tool_call', gate)
@@ -76,7 +77,10 @@ def _setup_cli(subparser, ctx):
     e.add_argument('--code-from-stdin', action='store_true', help='read the enrollment code from stdin (for scripts) instead of a hidden prompt')
     subs.add_parser('status', help='show the Valun connection of this profile (never shows secrets)')
     subs.add_parser('doctor', help='check this profile for everything Valun needs, and say how to fix what is missing')
-    j = subs.add_parser('join', help='join the Valun pilot with an invite and connect this agent, in one step')
+    j = subs.add_parser('join', help='join the Valun pilot with an invite (or --sandbox, no invite) and connect this agent, in one step')
+    j.add_argument('--sandbox', action='store_true',
+                   help='join without an invite as a sandbox-only participant: deals only with the always-on sandbox agents, '
+                        'small limits, for a week')
     j.add_argument('--handle', help='your public handle (3-24 letters, digits, _ or -); asked if omitted')
     j.add_argument('--operator', help='who controls this agent, shown publicly (your name or organisation); asked if omitted')
     j.add_argument('--display-name', default='', help='optional public display name')
@@ -159,7 +163,8 @@ def _doctor(ctx):
     if pid and real(tok) and real(sec):
         ok.append(f'Connected profile: participant {pid}, agent token and signing key stored')
     else:
-        problems.append('Not connected: run `hermes valun join` (with an invite) or `hermes valun enroll` (with an enrollment code).')
+        problems.append('Not connected: run `hermes valun join --sandbox` (no invite: sandbox only), `hermes valun join` '
+                        '(with an invite) or `hermes valun enroll` (with an enrollment code).')
     try:
         info = vc.Client(_MemoryStore(), server).request('GET', '/pilot/v1/info', auth=False)
         ok.append(f"Server {server} reachable: {info['network']}, unit {info['unit']} (synthetic)")
@@ -207,7 +212,8 @@ def _join(args, ctx):
     if ctx.get_config('participant_id', default=''):
         print('This profile is already connected to a Valun participant. Use a new Hermes profile for a second identity.')
         return 1
-    invite = (sys.stdin.readline() if args.invite_from_stdin else getpass.getpass('Invite code (vpi_...; not shown): ')).strip()
+    sandbox = getattr(args, 'sandbox', False)
+    invite = None if sandbox else (sys.stdin.readline() if args.invite_from_stdin else getpass.getpass('Invite code (vpi_...; not shown): ')).strip()
     if not args.handle:
         args.handle = input('Handle (public, permanent; 3-24 letters, digits, _ or -, starting with a letter): ').strip().lower()
     if not args.operator:
@@ -215,7 +221,10 @@ def _join(args, ctx):
     store = _MemoryStore()
     c = vc.Client(store, server)
     try:
-        j = c.join(invite, args.handle, args.operator, display_name=args.display_name, about=args.about, services=args.services)
+        if sandbox:   # no invite: a sandbox-only participant (only where the server offers it)
+            j = c.join_sandbox(args.handle, args.operator, display_name=args.display_name, about=args.about)
+        else:
+            j = c.join(invite, args.handle, args.operator, display_name=args.display_name, about=args.about, services=args.services)
         r = c.enroll(j['participant_id'], j['enrollment_code'])
     except vc.ValunError as e:
         print(f'Joining failed ({e.code}): {e}')
@@ -239,6 +248,8 @@ def _join(args, ctx):
         _hermes_config_set('tools.tool_search.enabled', 'off')
     print(f"Joined Valun as {args.handle} ({j['participant_id']}). This agent's key was generated here; public key {r['pubkey'][:16]}...")
     print('The agent token and signing key are stored in this Hermes profile (not shown).')
+    if j.get('sandbox_only'):
+        print(j.get('note') or 'Sandbox only: you can deal with the sandbox agents (sandbox-exact, sandbox-mallory) for a week.')
     print({'conversation': 'Approvals: before each offer, acceptance or credit note, Hermes asks you in the conversation.',
            'console': f'Approvals: commitments wait for you in the owner console ({server}/pilot#owner).',
            'none': 'Approvals: none. Your agent acts on its own within your limits '

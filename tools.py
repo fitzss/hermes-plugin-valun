@@ -7,6 +7,8 @@ to check the server's credit-note templates).
 """
 import json
 import os
+import threading
+import time
 
 try:
     from .valun_core import agent as va, client as vc  # inside the Hermes plugin package
@@ -69,10 +71,42 @@ def agent_for(ctx):
                          check_link_hosts=bool(ctx.get_config('check_link_hosts', default=True)))
 
 
+# Approvals bound to what the owner saw. The approval hook pins an acceptance to the terms hash (and a delivery
+# acceptance to the deliverable hash) current when it asks the owner, and the handler signs with those pinned
+# arguments once approved: if the offer or delivery changed in between, the core refuses to sign instead of signing
+# the newer version. Kept in memory only (no secrets in it), keyed by the exact call; old entries are pruned.
+_BOUND, _BOUND_LOCK, _BOUND_KEEP_S, _BOUND_MAX = {}, threading.Lock(), 24 * 3600, 256
+
+
+def _call_key(name, args):
+    return json.dumps([name, args or {}], sort_keys=True, ensure_ascii=False, default=str)
+
+
+def bind_for_approval(ctx, name, args):
+    """For the approval hook: the arguments the owner approves (pinned hashes added), remembered for the handler."""
+    args = dict(args or {})
+    bound = agent_for(ctx).bind(name, args)
+    if bound != args:
+        with _BOUND_LOCK:
+            now = time.monotonic()
+            for k in [k for k, (t, _b) in _BOUND.items() if now - t > _BOUND_KEEP_S]:
+                del _BOUND[k]
+            while len(_BOUND) >= _BOUND_MAX:
+                del _BOUND[min(_BOUND, key=lambda k: _BOUND[k][0])]
+            _BOUND[_call_key(name, args)] = (now, bound)
+    return bound
+
+
+def _approved_args(name, args):
+    with _BOUND_LOCK:
+        hit = _BOUND.pop(_call_key(name, args), None)
+    return hit[1] if hit else args
+
+
 def make_handlers(ctx):
     def wrap(name):
         def handler(args, **kwargs):
-            result = agent_for(ctx).call_safe(name, args or {})   # never raises
+            result = agent_for(ctx).call_safe(name, _approved_args(name, dict(args or {})))   # never raises
             return json.dumps(result, ensure_ascii=False, default=str)
         return handler
     return {name: wrap(name) for name in va.TOOL_NAMES}
