@@ -22,10 +22,11 @@ COMMITMENT_TOOLS = ('valun_propose', 'valun_respond', 'valun_review_delivery', '
 def _is_commitment(tool_name, args):
     if tool_name == 'valun_propose':
         return True
+    # Fail closed: only the explicitly harmless actions skip the owner (a misspelt "Accept" must never skip them).
     if tool_name == 'valun_respond':
-        return (args or {}).get('action') in ('accept', 'counter')
+        return (args or {}).get('action') not in ('decline', 'withdraw')
     if tool_name == 'valun_review_delivery':
-        return (args or {}).get('decision') == 'accept'
+        return (args or {}).get('decision') != 'dispute'
     return False
 
 
