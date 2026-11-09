@@ -120,7 +120,8 @@ class Wire:
         edges = []
         for i, r in ((X_PK, S_PK), (S_PK, X_PK)):
             before = dict(self.tracker[f'{i}>{r}'])
-            ts = (now_ms() - 1500) - ((now_ms() - 1500 - nv.SETOFF_MS) % 1000)
+            base = now_ms() - 1500          # read the clock once: two reads can straddle a millisecond
+            ts = base - ((base - nv.SETOFF_MS) % 1000)
             ts = ts if ts > before['timestamp'] else before['timestamp'] + 1 + (nv.SETOFF_MS - (before['timestamp'] + 1)) % 1000
             edges.append({'edge': f'{i}>{r}', 'issuer': {'id': IDS[i], 'handle': HANDLES[i]},
                           'recipient': {'id': IDS[r], 'handle': HANDLES[r]},
