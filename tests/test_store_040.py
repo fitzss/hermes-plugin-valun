@@ -61,6 +61,8 @@ VALUES = {
     'consent_log': [{'at': '2026-11-09T00:00:00.000Z', 'decision': 'signed', 'kind': 'setoff'}],
     'pins': {'tracker_nft_id': '42' * 32, 'denomination': 'token:' + 'ab' * 32},
     'journal_seq': 41,
+    'consents_last_safe_run_ms': 1700000000456,     # 0.4 (D-3 a): the last value-safe consent run, before a read
+    'consent_roles_declared': 'setoff,issuer,creditor',   # 0.4 (D-3 b): the roles the server last took
 }
 
 
