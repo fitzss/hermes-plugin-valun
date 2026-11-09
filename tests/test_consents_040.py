@@ -1,6 +1,8 @@
 """0.4.0: process_consents (config, default off). Off: the client never processes consents, and makes no request for
 them. On: the core processes them before a Valun tool that is not read-only, at most once per 60 s (consents_last_run_ms,
-kept in valun-records.json), and never before a read-only tool. Offline: a fake server; throwaway keys."""
+kept in valun-records.json); a read-only tool makes no full run (before valun_status and valun_inbox the core makes only
+its value-safe run, decision D-3 a, and not within 60 s of the last run of either kind: test_reads_roles_040). Offline:
+a fake server; throwaway keys."""
 import importlib.util
 import json
 import os
@@ -103,7 +105,7 @@ class ConsentProcessing(unittest.TestCase):
         self.assertEqual(len(self.runs), 1)
         self.decline(ctx)                        # within 60 s of the last run (kept in valun-records.json): not again
         self.assertEqual(len(self.runs), 1)
-        tools.make_handlers(ctx)['valun_inbox']({})       # a read-only tool never processes consents
+        tools.make_handlers(ctx)['valun_inbox']({})       # a read-only tool: no full run, and no value-safe run within 60 s
         self.assertEqual(len(self.runs), 1)
         now = int(time.time() * 1000)
         self.last_run(now - 59_000)

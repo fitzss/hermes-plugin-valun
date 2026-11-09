@@ -11,8 +11,14 @@ Approvals bound to what the owner saw (confirm_commitments on): the approval hoo
 commitment with the core's prepare(), from one snapshot of what it would sign, and remembers the arguments that binds
 (remember_binding); the handler signs with exactly those once Hermes's approval has passed (take_binding), and refuses
 a commitment it holds no binding for. Consents (process_consents on): before a Valun tool that is not read-only, the
-core signs the consents the owner's policy allows, at most once a minute (ValunAgent.consents_if_due); nothing runs in
-the background.
+core signs the consents the owner's policy allows, at most once a minute (ValunAgent.consents_if_due); before
+valun_status and valun_inbox it signs the value-safe ones only (set-offs, and payments to this participant by transfer
+as the policy allows; never a transfer of its own debt or a payment of its own), at most once a minute too, and the
+result says what it signed (consents_signed_now; decision D-3 a, ValunAgent consents_on_reads). Nothing runs in the
+background.
+
+The results the core writes for an agent name its own CLI's commands (`valun config ...`, `valun attempts ...`); the
+handlers name this profile's Hermes commands instead (hermes_result).
 """
 import copy
 import json
@@ -27,11 +33,13 @@ except ImportError:  # standalone (tests)
     from valun_core import agent as va, client as vc
 
 DEFAULT_SERVER = 'https://valun-desk.fly.dev'
-SETUP_HINT = 'run `hermes valun join` (or `hermes valun enroll`) in a terminal'
+SETUP_HINT = 'run `hermes valun join` (or `hermes valun enroll`) in a terminal'   # setup_hint(ctx) names the profile
 RECORDS_FILE = 'valun-records.json'        # plugin-data/valun/: every CORE_STATE_KEY, no secret
 LEGACY_FILE = 'issued-notes.json'           # 0.3's record of credit notes issued: valun-records.json starts from it
 CONSENT_ROLES = ('setoff', 'as_issuer', 'as_new_creditor')    # the plugin config's consents.<role> (true or false)
 CONSENT_MAX_PC = va.SANDBOX_CONSENT_POLICY['max_PC']          # one consent's cap, for a policy the config starts
+CONSENT_CAP_LIMIT = 100000                  # consents.max_PC: a whole number of PC up to this, or none (as `valun config`)
+_UNSET = object()
 BLOCK_TEXT = 'Valun could not read what you would sign; nothing was signed.'
 RECORDS_BLOCK_TEXT = ("Valun cannot read its own records (plugin-data/valun/valun-records.json), so it signs nothing; "
                       'nothing was signed. Tell your owner (`hermes valun doctor` says how to fix it).')
@@ -41,11 +49,28 @@ APPROVAL_MISSING = {
                 'call (it did not pass Hermes\'s approval step, or its arguments changed after that step).'),
     'what_this_means': ('Nothing was signed or sent. Call the tool again with the same arguments: Hermes then asks your '
                         'owner, and the call signs exactly what your owner approves.')}
-ATTEMPT_UNKNOWN_MEANS = ('An earlier payment of this deal may have applied: the edge it would change has moved past it to a '
-                         'state your Valun client cannot explain. Nothing was signed, and your client will not pay this deal '
-                         'again by itself. Only your owner can resolve it, after confirming with the payee whether the '
-                         'payment arrived (in a terminal: `hermes valun attempts list`, then `hermes valun attempts '
-                         'resolve`). Tell your owner.')
+# consent_policy_in_force.how_to_change in valun_status, for Hermes (the core's names `valun config consents.*`).
+HOW_TO_CHANGE = ('your owner changes the local policy in a terminal with `{roles}` (<role>: setoff, as_issuer or '
+                 'as_new_creditor) and `{cap}` (N: whole PC up to 100000, or none for no cap); your Valun client signs '
+                 'consents by itself only while process_consents is on (`{on}`), and `{status}` shows the policy in '
+                 'force; your owner changes the mandate in the owner console; the stricter of the two applies')
+ROLES_NOTE = ' (<role>: setoff, as_issuer or as_new_creditor)'
+# The core CLI's commands that core texts for the agent or the owner name (hermes_words): (core command, 'setting' or
+# 'valun', the rest of this profile's Hermes command, text after it).
+CORE_COMMANDS = (
+    ('`valun config consents.setoff|consents.as_issuer|consents.as_new_creditor on|off`', 'setting',
+     'consents.<role> true|false', ROLES_NOTE),
+    ('`valun config consents.max_PC N`', 'setting', 'consents.max_PC N', ''),
+    ('`valun config consents.*`', 'setting', 'consents.<role> true|false', ROLES_NOTE),
+    ('`valun attempts list`', 'valun', 'attempts list', ''),
+    ('`valun attempts resolve`', 'valun', 'attempts resolve', ''),
+    ('`valun join --sandbox`', 'valun', 'join --sandbox', ''),
+    ('`valun join`', 'valun', 'join', ''),
+    ('`valun enroll`', 'valun', 'enroll', ''),
+    ('`valun doctor`', 'valun', 'doctor', ''),
+    ('`valun policy show`', 'valun', 'status', ''),
+    ('`valun clearing run`', 'valun', 'consents --process', ''),
+)
 _WORD = re.compile(r'[a-z_]{1,40}\Z')
 _CORE_AGENT = va.ValunAgent             # argument_refusal() always asks the real core, whatever stands in for it
 # Re-exported for the plugin's CLI, hook and tests.
@@ -72,29 +97,146 @@ def server_url(ctx):
     return (ctx.get_config('server_url', default=DEFAULT_SERVER) or DEFAULT_SERVER).rstrip('/')
 
 
+def consent_cap(ctx):
+    """The plugin config's consents.max_PC, as `valun config consents.max_PC` takes it: (cap, problem). cap is a whole
+    number of PC from 0 to CONSENT_CAP_LIMIT (a digit string counts), None for no cap (`none`, which `hermes config
+    set` stores as null, or the string 'none'), or _UNSET when the setting is absent. A value that is none of these
+    (negative, too large, a fraction, true/false, other text) fails closed: cap 0 (no consent above 0 PC is signed),
+    and problem says why (None otherwise)."""
+    value = ctx.get_config('consents.max_PC', default=_UNSET)
+    if value is _UNSET:
+        return _UNSET, None
+    if value is None or (isinstance(value, str) and value.strip().lower() == 'none'):
+        return None, None
+    if isinstance(value, str) and re.fullmatch(r'[0-9]{1,7}', value.strip()):
+        value = int(value.strip())
+    if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= CONSENT_CAP_LIMIT:
+        return value, None
+    shown = ''.join(ch if ch.isprintable() else ' ' for ch in repr(value))[:40]
+    return 0, (f'consents.max_PC is {shown}, not a whole number of PC from 0 to {CONSENT_CAP_LIMIT} or none, so your '
+               'client signs no consent above 0 PC until it is fixed')
+
+
 def configured_policy(ctx, kept=None):
     """The local consent policy this profile's owner configured: the one kept in valun-records.json (`kept`), with each
-    consents.<role> the plugin config sets (true or false) in place of the kept flag. A config flag with no kept policy
-    starts one, capped at CONSENT_MAX_PC per consent. None when neither holds one (every role off)."""
+    consents.<role> the plugin config sets (true or false) in place of the kept flag, and the config's consents.max_PC
+    (consent_cap: none removes the cap) in place of the kept cap. A config setting with no kept policy starts one,
+    capped at CONSENT_MAX_PC per consent unless consents.max_PC says otherwise. None when neither holds one (every role
+    off)."""
     flags = {}
     for role in CONSENT_ROLES:
         value = ctx.get_config(f'consents.{role}', default=None)
         if isinstance(value, bool):
             flags[role] = value
-    if not flags:
+    cap, _problem = consent_cap(ctx)
+    if not flags and cap is _UNSET:
         return kept if isinstance(kept, dict) else None
     policy = dict(kept) if isinstance(kept, dict) else {'max_PC': CONSENT_MAX_PC}
     policy.update(flags)
+    if cap is None:
+        policy.pop('max_PC', None)
+    elif cap is not _UNSET:
+        policy['max_PC'] = cap
     return policy
 
 
-def data_dir():
-    """plugin-data/valun in the active Hermes profile (created when missing), or None outside Hermes (tests)."""
+def hermes_present():
+    """Does this process run inside Hermes (its secret store, agent.secret_scope, can be imported)?"""
+    try:
+        from agent.secret_scope import get_secret  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def plugin_data_folder():
+    """plugin-data/valun in the active Hermes profile (created when missing). None only outside Hermes (neither its
+    plugin storage nor its secret store can be imported: the tests), where the records live in memory. Inside a Hermes
+    whose plugin storage (plugins.plugin_storage) cannot be imported, this raises, so the store is records_unreadable
+    and signs nothing: its records (the signing firewall, the payment attempts) never fall back to memory there."""
     try:
         from plugins.plugin_storage import plugin_data_dir
-    except ImportError:
+    except ImportError as e:
+        if hermes_present():
+            raise RuntimeError("Hermes is running, but its plugin storage (plugins.plugin_storage) cannot be imported "
+                               f'({type(e).__name__}), so this plugin has no folder for its records') from None
         return None
     return str(plugin_data_dir('valun'))
+
+
+data_dir = plugin_data_folder       # the store's folder (the tests stand in for it)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# This profile's Hermes commands, as printed for the owner (by the operator command, and in results for the agent)
+
+_PROFILE_RE = re.compile(r'[a-z0-9][a-z0-9_-]{0,63}\Z')
+
+
+def profile_name(ctx):
+    """This Hermes profile's name ('default' or the name under profiles/), or None for a Hermes home that is no named
+    profile (a HERMES_HOME set to another folder)."""
+    try:
+        name = getattr(ctx, 'profile_name', None)
+    except Exception:  # noqa: BLE001
+        name = None
+    return name if isinstance(name, str) and _PROFILE_RE.match(name) and name != 'custom' else None
+
+
+def hermes_cmd(ctx, rest, sub='valun'):
+    """A command for THIS profile: `hermes -p NAME valun REST` (the default profile named too, so a sticky `hermes
+    profile use` elsewhere cannot redirect it), or `hermes valun REST` in a home that is no named profile."""
+    name = profile_name(ctx)
+    return f"hermes {'-p ' + name + ' ' if name else ''}{sub} {rest}".rstrip()
+
+
+def setting_cmd(ctx, key, value):
+    """The command that sets one of this plugin's settings in this profile."""
+    return hermes_cmd(ctx, f'set {setting_path(ctx, key)} {value}', sub='config')
+
+
+def setting_path(ctx, key):
+    pid = getattr(ctx, 'plugin_id', None)
+    pid = pid if isinstance(pid, str) and pid else 'valun'
+    return f'plugins.entries.{pid}.settings.{key}'
+
+
+def setup_hint(ctx):
+    return f'run `{hermes_cmd(ctx, "join")}` (or `{hermes_cmd(ctx, "enroll")}`) in a terminal'
+
+
+def how_to_change(ctx):
+    return HOW_TO_CHANGE.format(roles=setting_cmd(ctx, 'consents.<role>', 'true|false'),
+                                cap=setting_cmd(ctx, 'consents.max_PC', 'N'),
+                                on=setting_cmd(ctx, 'process_consents', 'true'), status=hermes_cmd(ctx, 'status'))
+
+
+def hermes_words(ctx, text):
+    """`text` (a core message for the agent or the owner) with each core-CLI command it names (CORE_COMMANDS) replaced
+    by this profile's Hermes command; any other text is returned as it is."""
+    if not isinstance(text, str) or '`valun ' not in text:
+        return text
+    for core, sub, rest, after in CORE_COMMANDS:
+        if core in text:
+            cmd = setting_cmd(ctx, *rest.split(' ', 1)) if sub == 'setting' else hermes_cmd(ctx, rest)
+            text = text.replace(core, f'`{cmd}`{after}')
+    return text
+
+
+def hermes_result(ctx, out):
+    """A core tool result with this profile's Hermes commands where the core names its CLI's: valun_status's
+    consent_policy_in_force.how_to_change (HOW_TO_CHANGE), and any what_this_means, how_to_change or message that
+    names a core-CLI command (hermes_words: attempt_outcome_unknown's `valun attempts list` and `valun attempts
+    resolve`, say). In place; returns `out`."""
+    if not isinstance(out, dict):
+        return out
+    policy = out.get('consent_policy_in_force')
+    if isinstance(policy, dict) and isinstance(policy.get('how_to_change'), str):
+        policy['how_to_change'] = how_to_change(ctx)
+    for k in ('what_this_means', 'how_to_change', 'message'):
+        if isinstance(out.get(k), str):
+            out[k] = hermes_words(ctx, out[k])
+    return out
 
 
 def secret_value(name):
@@ -330,16 +472,23 @@ def _approvals_text(ctx):
     if consents_on(ctx):
         text += (" Your Valun client also signs, by itself, the consents your owner's policy allows (set-offs that leave "
                  'your net position unchanged, transfers of your own debt and, where allowed, payments to you by transfer), '
-                 'before Valun tool calls that are not read-only: never ask your owner about those.')
+                 'before Valun tool calls that are not read-only; set-offs and payments to you also before valun_status '
+                 'and valun_inbox (consents_signed_now in their result lists what it signed then): never ask your owner '
+                 'about those.')
     return text
 
 
 def agent_for(ctx):
-    """The core's agent over this profile (a HermesStore), consenting by itself only with process_consents on."""
+    """The core's agent over this profile (a HermesStore), consenting by itself only with process_consents on: before
+    Valun tools that are not read-only (consents_if_due), and, as Hermes runs no consent loop, the value-safe consents
+    before valun_status and valun_inbox too (consents_on_reads, decision D-3 a; not while its records cannot be read).
+    declare_roles is left to the core (as process_consents): the plugin signs no consent by itself with it off, so its
+    client then declares no consent role and withdraws the ones it declared before (decision D-3 b)."""
     store = HermesStore(ctx)
-    return va.ValunAgent(store, approvals=_approvals_text(ctx), setup_hint=SETUP_HINT,
+    return va.ValunAgent(store, approvals=_approvals_text(ctx), setup_hint=setup_hint(ctx),
                          check_link_hosts=bool(ctx.get_config('check_link_hosts', default=True)),
-                         process_consents=store.process_consents)
+                         process_consents=store.process_consents,
+                         consents_on_reads=store.process_consents and store.unreadable is None)
 
 
 def argument_refusal(name, args):
@@ -418,29 +567,32 @@ def _run(ctx, name, args):
     agent = agent_for(ctx)
     store = agent.store
     if getattr(store, 'unreadable', None) is not None and name not in va.READ_ONLY_TOOLS:
-        return va.error_payload(store.refusal(), SETUP_HINT)
+        return va.error_payload(store.refusal(), setup_hint(ctx))
     if bound is not None:                      # prepared by the hook, and Hermes's approval passed: sign exactly that
         out = agent.call_safe(name, bound)
     elif confirm_commitments(ctx) and agent.is_commitment(name, args):
         out = argument_refusal(name, args) or dict(APPROVAL_MISSING)   # never signed without the owner's approval
     else:
         out = agent.call_safe(name, args)
-    if isinstance(out, dict) and out.get('error') == 'attempt_outcome_unknown':
-        out['what_this_means'] = ATTEMPT_UNKNOWN_MEANS
-    return out
+    return hermes_result(ctx, out)
 
 
 def make_handlers(ctx):
     """The nine tools' handlers. Each returns a JSON string and never raises. With confirm_commitments on, a commitment
-    signs only the arguments the approval hook bound for exactly that call (and is refused without them); before a tool
-    that is not read-only, the core signs the consents the owner's policy allows when process_consents is on (at most
-    once a minute)."""
+    signs only the arguments the approval hook bound for exactly that call (and is refused without them). With
+    process_consents on, the core signs the consents the owner's policy allows before a tool that is not read-only, and
+    the value-safe ones before valun_status and valun_inbox (each at most once a minute). Results name this profile's
+    Hermes commands where the core names its CLI's (hermes_result)."""
     def wrap(name):
         def handler(args, **kwargs):
             try:
                 out = _run(ctx, name, dict(args) if isinstance(args, dict) else {})
             except Exception as e:  # noqa: BLE001 - a handler never raises (Hermes plugin contract)
-                out = va.error_payload(e, SETUP_HINT)
+                try:
+                    hint = setup_hint(ctx)
+                except Exception:  # noqa: BLE001
+                    hint = SETUP_HINT
+                out = va.error_payload(e, hint)
             return json.dumps(out, ensure_ascii=False, default=str)
         return handler
     return {name: wrap(name) for name in va.TOOL_NAMES}

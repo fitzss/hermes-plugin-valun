@@ -71,27 +71,39 @@ mandate** (the stricter of the two applies):
 - `consents.setoff`: set-offs that cancel equal debts around a cycle. Your net position does not change.
 - `consents.as_issuer`: transfers of **your own debt** to a new creditor. What you owe in total does not change.
 - `consents.as_new_creditor`: payments **to you** by debt transfer, of notes from issuers your owner mandate accepts.
-- Each consent is capped at 50 PC; your client also re-signs a payment of yours that the server regenerated, only under
-  the quote you approved.
+- `consents.max_PC`: the most one consent may move, 50 PC unless you change it (a whole number from 0 to 100000, or
+  `none` for no cap). Your client also re-signs a payment of yours that the server regenerated, only under the quote
+  you approved.
 
 Nothing of this happens unless **`process_consents`** is on. Then, and only then, your client signs what is allowed
 **before a Valun tool call that is not read-only, at most once a minute**, and tells the server which roles it signs
-(so the server proposes no others). **Nothing runs in the background**: no thread, no timer, no process; with no Valun
-activity nothing is signed. `hermes valun join --sandbox` turns it on, with all three roles (the sandbox agents
-pay and clear through them). An invited join leaves it **off** and sets the policy to set-offs and transfers of your own
-debt (payments to you by transfer off). Change it in this profile:
+(so the server proposes no others). Because Hermes runs no consent loop, the **value-safe** consents are also signed
+**before `valun_status` and `valun_inbox`**, at most once a minute (and not within a minute of the other run): set-offs
+(your net position does not change) and payments to you by transfer as your policy allows. A transfer of your own debt,
+or anything that pays from your side, is never signed (or refused) from these two read-only tools. Their result then
+lists what was signed in `consents_signed_now` (an empty list: the run found nothing to sign). So the sandbox tour moves
+on at its set-off steps while the agent follows `valun_status` (it says to call `valun_status` again), without your
+help. **Nothing runs in the background**: no thread, no timer, no process; with no Valun activity nothing is signed.
+`hermes valun join --sandbox` turns it on, with all three roles (the sandbox agents pay and clear through them). An
+invited join leaves it **off** and sets the policy to set-offs and transfers of your own debt (payments to you by
+transfer off). Change it in this profile:
 
     hermes -p valun config set plugins.entries.valun.settings.process_consents false      (the off switch)
     hermes -p valun config set plugins.entries.valun.settings.consents.as_new_creditor true
+    hermes -p valun config set plugins.entries.valun.settings.consents.max_PC 20
 
-`hermes -p valun valun status` shows the policy; `hermes -p valun valun consents` lists what waits for your client, and
-`hermes -p valun valun consents --process` signs it now (you, at a terminal). Because nothing runs in the background, a
-consent that arrives while your agent only reads (for example a set-off in the sandbox tour, while `valun_status` says to
-wait for it) is signed at the agent's next Valun call that is not read-only, or at once with `consents --process`. A
-set-off left unsigned expires after 30 minutes; the server then waits 6 hours before proposing the same cycle again, and
-after three expiries in a row it leaves you out of set-offs for a day. If you turn `process_consents` off, the
-server may count the roles your client declared before for up to 7 days; set-offs and transfers that wait for your
-client then expire unsigned (nothing applies without every signature).
+`hermes -p valun valun status` shows the policy in force; `hermes -p valun valun consents` lists what waits for your
+client, and `hermes -p valun valun consents --process` signs it now (you, at a terminal). A set-off left unsigned
+expires after 30 minutes; the server then waits 6 hours before proposing the same cycle again, and after three expiries
+in a row it leaves you out of set-offs for a day. If you turn `process_consents` off, or every `consents.*` role off,
+your client withdraws the roles it declared before: its next Valun call that reads the server (`valun_status` does, and
+so does `hermes valun consents`) sends the empty list, and the server forgets them at once, so it proposes no set-off or
+transfer that would then wait for your client.
+
+**The Plugins settings page shows the `consents.*` settings wrongly.** Hermes's settings hub reads the plugin's dotted
+setting names (`consents.setoff`, `consents.max_PC`, ...) as flat keys, while `hermes config set` and the plugin store
+them nested, so the page can show the defaults (off, 50) while your profile holds other values. It saves only the
+fields you change, so it overwrites nothing; trust `hermes -p valun valun status`, which shows the policy in force.
 
 ## Setup (about 10 minutes; with an invite code from the pilot operator, or none with `--sandbox`)
 
@@ -108,8 +120,11 @@ client then expire unsigned (nothing applies without every signature).
    It asks for the invite code (hidden), your public handle and your name as operator, creates your participant,
    generates your agent's key on your machine, shows your **owner token once** (or writes it to a new file you name with
    `--owner-token-file`; keep it in a password manager; never give it to your agent; it opens the owner console where
-   you can change limits or revoke the agent) and stores the agent's credentials in this profile. If a later step fails
-   (the server is busy, say), it says what is not set yet and prints the commands that finish it.
+   you can change limits or revoke the agent) and stores the agent's credentials in this profile. The owner token is
+   handed over (shown, or written to the new file) right after the server's answer, before anything else, so a step
+   that fails later never loses it; an existing `--owner-token-file` is never replaced (the token is shown instead, and
+   join exits 1). If a later step fails (the server is busy, say), it says what is not set yet and prints the commands
+   that finish it, naming this profile (and the server and your participant where the profile does not hold them yet).
    `--direct-tools` shows the Valun tools to the model directly instead of through Hermes's tool search (better with
    small models; this profile only). Approvals: by default Hermes asks you before every offer, acceptance, credit note
    or payment (`--approvals conversation`); `--approvals none` lets the agent act on its own within your limits;
@@ -159,7 +174,8 @@ the `valun` package 0.4.0, copied unchanged, so the plugin needs nothing install
   under `/pilot/v1/`: `consents` (and `consents/{id}`, `consents/{id}/refuse`: the signatures and refusals of your consents),
   `edges` (your tracker states, checked against their signatures), `deals/{id}/payment-options`,
   `deals/{id}/transfer-template`, `deals/{id}/pay-by-transfer`, `deals/{id}/cancel-transfer` and `transfers/{id}`, and it
-  sends the header `X-Valun-Features` naming the consent roles it signs (only while `process_consents` is on). The owner
+  sends the header `X-Valun-Features` naming the consent roles it signs (only while `process_consents` is on; with it
+  off, or every role off, it sends the empty list once, so the server forgets the roles it declared before). The owner
   commands use your owner token once, for `GET /pilot/v1/owner`, `PUT /pilot/v1/owner/mandate` (join) and
   `POST /pilot/v1/owner/deals/{deal}/attempts/{attempt}/resolve` (attempts resolve). Nothing else.
 - **Stored credentials:** `VALUN_AGENT_TOKEN` and `VALUN_SIGNING_SECRET`, stored in the profile's `.env` by
@@ -167,13 +183,17 @@ the `valun` package 0.4.0, copied unchanged, so the plugin needs nothing install
   token is never stored by the plugin.
 - **Local data:** `plugin-data/valun/valun-records.json`, your client's own records (no secrets): the credit notes and
   payments it signed and their outcomes, what it signed for debt transfers and set-offs, the tracker and unit it is
-  pinned to, its consent policy and its last 100 consent decisions. Changes go through a lock file next to it
-  (`valun-records.json.lock`). Since 0.4.0 it starts from 0.3's `plugin-data/valun/issued-notes.json`, which is left in
-  place and no longer read. If the file cannot be read, your client signs nothing until it is fixed (`doctor` says how);
-  it is never replaced by empty records.
+  pinned to, its consent policy, its last 100 consent decisions, when it last ran its consent checks and the consent
+  roles the server last took from it. Changes go through a lock file next to it (`valun-records.json.lock`). Since 0.4.0
+  it starts from 0.3's `plugin-data/valun/issued-notes.json`, which is left in place and no longer read. If the file
+  cannot be read, your client signs nothing until it is fixed (`doctor` says how); it is never replaced by empty
+  records. Inside Hermes the records never live in memory only: if Hermes's plugin storage cannot be loaded, the
+  plugin treats its records as unreadable and signs nothing.
 - **Link checks:** when your agent reviews a delivery or sends one, the plugin looks up the host names of the links in it (DNS only; no page is fetched) to flag sources whose domain does not exist. Turn off with `check_link_hosts: false`. Domains that answer for any subdomain (e.g. hosting platforms) cannot be caught this way.
 - **Automatic signing:** only the consents described above, only while `process_consents` is on, and only before a
-  Valun tool call that is not read-only. Every commitment that is yours (an offer, an acceptance, a payment) asks you.
+  Valun tool call that is not read-only, or, for set-offs and payments to you, before `valun_status` and `valun_inbox`
+  (listed in their result as `consents_signed_now`). Every commitment that is yours (an offer, an acceptance, a payment)
+  asks you.
 - **Shell:** `hermes valun join` and `enroll` run `hermes config set` (as an argument list, no shell) to store the two
   secrets; `join --direct-tools` also sets `tools.tool_search.enabled off` in that profile.
   No other subprocesses, no background processes or threads, no telemetry, no self-updates.
@@ -181,6 +201,19 @@ the `valun` package 0.4.0, copied unchanged, so the plugin needs nothing install
   Valun agent, run it with only the `valun` toolset (`hermes chat -t valun`) or a Docker/SSH terminal backend.
 - **Approvals:** they depend on Hermes's approval gate. Do not run a Valun agent with `--yolo` or `approvals.mode: off`:
   either would let it sign commitments without asking you.
+
+## Known limits (0.4.0)
+
+- **Approvals are matched to calls by tool name and exact arguments.** Hermes gives the hook a call id but not the
+  handler, so the binding the hook prepared is found by the call's name and arguments, and the newest one wins. Two
+  cases can let one approved call sign the snapshot prepared for another call with **identical** arguments: two
+  identical commitment calls in one batch (the second hook replaces the first one's binding before the first handler
+  takes it), and a hook that Hermes gave up on after its 30 s timeout and that finishes after a retried, approved call.
+  Each snapshot shows exactly those arguments and was taken moments apart; it differs only if the deal changed in
+  between. 0.3.0 matched calls the same way.
+- **Bindings live in the plugin's process memory.** Hermes runs the hook and the handler in one process today; if a
+  future Hermes split them, every commitment would be refused (`approval_missing`): nothing would be signed.
+- **The Plugins settings page** can show the `consents.*` settings wrongly (see above); `hermes valun status` is right.
 
 ## What is real and what is not
 

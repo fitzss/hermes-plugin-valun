@@ -7,6 +7,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import re
 import os
 import shutil
 import sys
@@ -233,6 +234,144 @@ class Join(Base):
         code, out = self.run_cli(Ctx(participant_id=PID), Server({}), 'join', '--sandbox', '--handle', 's1', '--operator', 'T')
         self.assertEqual(code, 1)
         self.assertIn('already connected', out)
+
+    # ----- decision D-3 c: the owner token first, whatever fails after the join answer -----
+    def join(self, ctx, server, *extra):
+        return self.run_cli(ctx, server, 'join', '--sandbox', '--handle', 's1', '--operator', 'Tester', '--server', SERVER,
+                            *extra)
+
+    def test_the_owner_token_is_handed_over_before_enrolment(self):
+        token_file = os.path.join(self.dir, 'owner.txt')
+        seen = []
+
+        def enroll(body, token):
+            seen.append(os.path.exists(token_file))
+            return {'network': 'valun-pilot-1', 'agent_token': 'agent-token-throwaway'}
+        code, out = self.join(Ctx(), Server(join_routes(self, enroll=enroll)), '--owner-token-file', token_file)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(seen, [True], 'the token file was written before the enrolment request')
+        code, out = self.join(Ctx(), Server(join_routes(self, enroll=vc.ValunError('rate_limited', 'slow down', 429))))
+        self.assertLess(out.index(OWNER), out.index("this agent's key could not be registered"))
+
+    def test_an_answer_without_an_owner_token_writes_nothing(self):
+        token_file = os.path.join(self.dir, 'owner.txt')
+        for bad in ('absent', None, '', 123):
+            routes = join_routes(self)
+            answer = routes[('POST', '/pilot/v1/join-sandbox')]
+            if bad == 'absent':
+                del answer['owner_token']
+            else:
+                answer['owner_token'] = bad
+            ctx, server = Ctx(), Server(routes)
+            code, out = self.join(ctx, server, '--owner-token-file', token_file)
+            self.assertEqual(code, 1, bad)
+            self.assertEqual(out.strip(), 'Joining failed (bad_response): the server did not answer an owner token.', bad)
+            self.assertEqual(server.paths(), [('POST', '/pilot/v1/join-sandbox')], bad)
+            self.assertFalse(os.path.exists(token_file), bad)
+            self.assertEqual((ctx.config, self.config_set), ({}, []), bad)
+
+    def test_a_settings_write_that_fails_still_leaves_the_token_handed_over(self):
+        class Failing(Ctx):
+            def set_config(self, key, value):
+                if key == 'participant_id':
+                    raise PermissionError(13, 'Permission denied', 'config.yaml')
+                super().set_config(key, value)
+        ctx = Failing()
+        code, out = self.join(ctx, Server(join_routes(self)))
+        self.assertEqual(code, 1)
+        self.assertLess(out.index(OWNER), out.index('Joining stopped (PermissionError)'))
+        self.assertIn(f'Your participant {PID} exists, and your owner token was handed over above. Not done: ', out)
+        self.assertIn(f'`hermes -p valun-test config set plugins.entries.valun.settings.server_url {SERVER}`', out)
+        self.assertIn(f'`hermes -p valun-test config set plugins.entries.valun.settings.participant_id {PID}`', out)
+        self.assertIn('Then run `hermes -p valun-test valun doctor`.', out)
+        self.assertNotIn('process_consents', ctx.config, 'a join stopped early leaves the client signing nothing')
+        self.assertNotIn('Traceback', out)
+
+    def test_an_unexpected_error_in_the_mandate_step_keeps_hermes_asking(self):
+        ctx = Ctx()
+        code, out = self.join(ctx, Server(join_routes(self, owner=lambda body, token: RuntimeError('boom'))),
+                              '--approvals', 'console')
+        self.assertEqual(code, 1)
+        self.assertIn('Joining stopped (RuntimeError): boom', out)
+        self.assertIn("Not done: your owner mandate's approve_above (with --approvals console also review_deliveries)", out)
+        self.assertIs(ctx.config['confirm_commitments'], True)
+        self.assertIn(OWNER, out)
+
+    def test_an_answer_this_client_cannot_take_says_the_server_may_hold_the_key(self):
+        ctx = Ctx()
+        code, out = self.join(ctx, Server(join_routes(self, enroll={'agent_token': 'agent-token-throwaway'})))  # no network
+        self.assertEqual(code, 1)
+        self.assertIn("and the server may hold this agent's key, but the key could not be stored here (KeyError)", out)
+        self.assertIn('revoke this agent, which gives a new enrollment code (a new code is refused while a key is '
+                      'registered); if the console shows no agent key, issue an enrollment code instead', out)
+        self.assertIn(f'`hermes -p valun-test valun enroll --server {SERVER} --participant {PID}`', out)
+        self.assertIn(OWNER, out)
+        self.assertEqual((self.config_set, ctx.config), ([], {}))
+
+    def test_credentials_hermes_cannot_store_name_the_server_and_the_participant(self):
+        with mock.patch.object(plugin, '_hermes_config_set', lambda k, v: False):
+            code, out = self.join(Ctx(), Server(join_routes(self)))
+        self.assertEqual(code, 1)
+        self.assertIn('Hermes could not store the agent credentials, so this profile is not connected.', out)
+        self.assertIn('revoke this agent, which gives a new enrollment code', out)
+        self.assertIn(f'`hermes -p valun-test valun enroll --server {SERVER} --participant {PID}`', out)
+
+    def test_a_token_file_that_cannot_be_written_shows_the_token(self):
+        token_file = os.path.join(self.dir, 'owner.txt')
+        with mock.patch.object(plugin.os, 'fdopen', side_effect=OSError(28, 'No space left on device')):
+            with self.assertRaises(OSError):
+                plugin._write_new_private(token_file, 'x\n')
+        self.assertFalse(os.path.exists(token_file), 'the file this call created is removed')
+        with mock.patch.object(plugin, '_write_new_private', side_effect=OSError(28, 'No space left on device')):
+            code, out = self.join(Ctx(), Server(join_routes(self)), '--owner-token-file', token_file)
+        self.assertEqual(code, 1)
+        self.assertIn(f'Cannot write {token_file} (No space left on device), so your owner token is shown here instead.', out)
+        self.assertIn('  ' + OWNER, out)
+        self.assertTrue(out.rstrip().endswith(f'Exit code 1: {token_file} was not written (your owner token is shown above '
+                                              'instead).'))
+
+    def test_an_existing_owner_token_file_is_said_to_exist(self):
+        token_file = os.path.join(self.dir, 'owner.txt')
+        with open(token_file, 'w', encoding='utf-8') as f:
+            f.write('kept\n')
+        code, out = self.join(Ctx(), Server(join_routes(self)), '--owner-token-file', token_file)
+        self.assertEqual(code, 1)
+        self.assertIn(f'{token_file} exists already, so it was not replaced (it may hold another owner token); your owner '
+                      'token is shown here instead.', out)
+
+    def test_join_sets_the_consent_cap(self):
+        ctx = Ctx()
+        self.assertEqual(self.join(ctx, Server(join_routes(self)))[0], 0)
+        self.assertEqual(ctx.config['consents.max_PC'], va.SANDBOX_CONSENT_POLICY['max_PC'])
+        self.assertEqual(tools.HermesStore(ctx).state['consent_policy'], va.SANDBOX_CONSENT_POLICY)
+
+    def test_every_command_join_prints_names_this_profile_and_exists(self):
+        with open(os.path.join(ROOT, 'plugin.yaml'), encoding='utf-8') as f:
+            schema = set(re.findall(r'^  ([a-z_][a-zA-Z_.]*):\s*$', f.read().split('config_schema:', 1)[1], re.M))
+        invited = self.run_cli(Ctx(), Server(join_routes(self, sandbox=False)), 'join', '--invite-from-stdin', '--handle', 'i1',
+                               '--operator', 'Tester', '--server', SERVER, stdin='vpi_throwaway\n')
+        self.assertEqual(invited[0], 0, invited[1])
+        outs = [self.join(Ctx(), Server(join_routes(self)))[1], invited[1],
+                self.join(Ctx(), Server(join_routes(self, enroll=vc.ValunError('bad_code', 'expired', 400))))[1],
+                self.join(Ctx(), Server(join_routes(self, put=vc.ValunError('rate_limited', 'slow', 429))),
+                          '--approvals', 'console')[1],
+                self.join(Ctx(), Server(join_routes(self, enroll={'agent_token': 'x'})))[1]]
+        commands = {c for out in outs for c in re.findall(r'`(hermes [^`]*)`', out)}
+        self.assertGreaterEqual(len(commands), 7, commands)
+        for cmd in commands:
+            words = cmd.split()
+            self.assertEqual(words[:3], ['hermes', '-p', 'valun-test'], cmd)
+            if words[3] == 'valun':
+                parse(*words[4:])                    # exits (fails the test) on a command that does not exist
+            elif words[3] == 'config':
+                self.assertEqual(words[4], 'set', cmd)
+                key = words[5]
+                if key.startswith('plugins.entries.valun.settings.'):
+                    self.assertIn(key[len('plugins.entries.valun.settings.'):], schema, cmd)
+                else:
+                    self.assertIn(key, ('tools.tool_search.enabled', 'approvals.mode'), cmd)
+            else:
+                self.assertEqual(words[3:], ['chat', '-t', 'valun'], cmd)
 
 
 class Joined(Base):

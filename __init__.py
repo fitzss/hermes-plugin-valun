@@ -162,25 +162,15 @@ def _hermes_config_set(key, value):
     return r.returncode == 0
 
 
-_PROFILE_RE = re.compile(r'[a-z0-9][a-z0-9_-]{0,63}\Z')
-
-
 def _profile(ctx):
-    """This Hermes profile's name ('default' or the name under profiles/), or None for a Hermes home that is no named
-    profile (a HERMES_HOME set to another folder)."""
-    try:
-        name = getattr(ctx, 'profile_name', None)
-    except Exception:  # noqa: BLE001
-        name = None
-    return name if isinstance(name, str) and _PROFILE_RE.match(name) and name != 'custom' else None
+    """This Hermes profile's name, or None for a Hermes home that is no named profile (tools.profile_name)."""
+    return tools.profile_name(ctx)
 
 
 def _hermes(ctx, rest, sub='valun'):
-    """A command for THIS profile, as printed for the owner: `hermes -p NAME valun REST` (the default profile named too,
-    so a sticky `hermes profile use` elsewhere cannot redirect it), or `hermes valun REST` in a home that is no named
-    profile (_home_note says to keep HERMES_HOME)."""
-    name = _profile(ctx)
-    return f"hermes {'-p ' + name + ' ' if name else ''}{sub} {rest}".rstrip()
+    """A command for THIS profile, as printed for the owner (tools.hermes_cmd): `hermes -p NAME valun REST`, or `hermes
+    valun REST` in a home that is no named profile (_home_note says to keep HERMES_HOME)."""
+    return tools.hermes_cmd(ctx, rest, sub)
 
 
 def _home_note(ctx):
@@ -196,9 +186,7 @@ def _home_note(ctx):
 
 def _setting_cmd(ctx, key, value):
     """The command that sets one of this plugin's settings in this profile."""
-    pid = getattr(ctx, 'plugin_id', None)
-    pid = pid if isinstance(pid, str) and pid else 'valun'
-    return _hermes(ctx, f'set plugins.entries.{pid}.settings.{key} {value}', sub='config')
+    return tools.setting_cmd(ctx, key, value)
 
 
 def _terminal_text(s, limit=300):
@@ -207,8 +195,10 @@ def _terminal_text(s, limit=300):
 
 
 def _owner_text(ctx, s, limit=300):
-    """A core message for the owner, with its `valun attempts ...` commands named as this profile's Hermes commands."""
-    return _terminal_text(str(s).replace('`valun attempts', '`' + _hermes(ctx, 'attempts')), limit)
+    """A core message for the owner, with the core-CLI commands it names (`valun attempts ...`, `valun config ...`)
+    named as this profile's Hermes commands (tools.hermes_words)."""
+    s = tools.hermes_words(ctx, str(s))
+    return _terminal_text(s.replace('`valun attempts', '`' + _hermes(ctx, 'attempts')), limit)
 
 
 # With Hermes v0.22.7, enabling any git-installed plugin copies Hermes's runtime into <home>/installs/...; its longest
@@ -228,10 +218,19 @@ def _policy_line(policy):
 
 def _consents_line(ctx, store):
     if store.process_consents:
-        return ('signed by your client by itself, before Valun tool calls that are not read-only, at most once a minute '
-                '(process_consents on; nothing runs in the background)')
+        return ('signed by your client by itself, before Valun tool calls that are not read-only, at most once a minute; '
+                'set-offs and payments to you by transfer also before valun_status and valun_inbox (process_consents on; '
+                'nothing runs in the background)')
     return (f'none signed by itself (process_consents off); `{_hermes(ctx, "consents --process")}` signs them when you '
             'run it')
+
+
+def _cap_problem(ctx):
+    """What is wrong with the consents.max_PC setting, with the fix; None when nothing is."""
+    _cap, problem = tools.consent_cap(ctx)
+    if problem is None:
+        return None
+    return f'{problem}. Fix: `{_setting_cmd(ctx, "consents.max_PC", tools.CONSENT_MAX_PC)}` (or none for no cap).'
 
 
 def _doctor(ctx):
@@ -301,6 +300,8 @@ def _doctor(ctx):
         ok.append('Commitments: ' + ('Hermes asks you before each one (never run with --yolo)' if confirm
                                      else 'autonomous within your limits (confirm_commitments is off)'))
     ok.append(f'Consents: {_consents_line(ctx, store)}; policy {_policy_line(store.kept_policy)}')
+    if _cap_problem(ctx):
+        problems.append(_cap_problem(ctx))
     for line in ok:
         print('  ok    ' + line)
     for line in problems:
@@ -311,22 +312,40 @@ def _doctor(ctx):
 
 def _write_new_private(path, text):
     """Write `text` into a NEW private file (O_EXCL: an existing file, maybe another participant's owner token, is never
-    overwritten or truncated, and a file that exists with wider permissions never receives it)."""
+    overwritten or truncated, and a file that exists with wider permissions never receives it; FileExistsError). If
+    writing fails, the file this call created is removed (as the core CLI's _write_private does)."""
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, 'w', encoding='utf-8') as f:
-        f.write(text)
+    try:
+        try:
+            f = os.fdopen(fd, 'w', encoding='utf-8')
+        except BaseException:
+            os.close(fd)
+            raise
+        with f:
+            f.write(text)
+    except BaseException:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        raise
 
 
 def _hand_over(args, owner, server):
-    """The owner token, to the owner, once: written to --owner-token-file (a new private file), or shown. A file that
-    cannot be written does not lose it: it is shown instead, and False is returned (join exits 1 once its other steps are
-    done, so that a script relying on the file notices). True otherwise."""
+    """The owner token, to the owner, once (decision D-3 c: right after the join answer, before anything else can fail):
+    written to --owner-token-file (a new private file), or shown. A file that cannot be written, or that exists already
+    (never replaced: it may hold another identity's owner token), does not lose it: it is shown instead, and False is
+    returned (join exits 1 once its other steps are done, so that a script relying on the file notices). True
+    otherwise."""
     path = getattr(args, 'owner_token_file', None)
     if path:
         try:
             _write_new_private(path, owner + '\n')
             print(f'Your OWNER token is in {path}. Keep it private; do not give it to your agent.')
             return True
+        except FileExistsError:
+            print(f'{path} exists already, so it was not replaced (it may hold another owner token); your owner token is '
+                  'shown here instead.')
         except OSError as e:
             print(f'Cannot write {path} ({e.strerror or e}), so your owner token is shown here instead.')
     print('Your OWNER token (shown once; store it in a password manager, never give it to your agent; it opens '
@@ -390,21 +409,95 @@ def _join(args, ctx):
     except vc.ValunError as e:
         print(f'Joining failed ({e.code}): {e}')
         return 1
-    owner, pid = j['owner_token'], j['participant_id']
-    # From here on the participant exists, and its owner token is in this answer only: it is handed over right after
-    # enrolment, before anything else can fail, and every later step that fails says how to finish it.
+    owner = j.get('owner_token') if isinstance(j, dict) else None
+    if not (isinstance(owner, str) and owner):
+        print('Joining failed (bad_response): the server did not answer an owner token.')
+        return 1
+    # Decision D-3 c: from here on the participant exists, and its owner token is in this answer only. It is handed over
+    # first (_hand_over: written to --owner-token-file, or shown), before enrolment and before any local write that can
+    # fail (Hermes's secret store, this profile's settings, the records); whatever fails after this, join says what is
+    # not done and how to finish, and exits 1.
+    handed = _hand_over(args, owner, server)
+    step = ['enroll']
+    try:
+        finished = _join_steps(args, ctx, c, store, j, server, owner, sandbox, step)
+    except Exception as e:  # noqa: BLE001 - the owner token is handed over already: say what stopped, never a traceback
+        pid = _terminal_text(j.get('participant_id') or 'PARTICIPANT_ID', 40)
+        print(f'Joining stopped ({_failure(e)}): {_terminal_text(e)}')
+        print(f'  Your participant {pid} exists, and your owner token was handed over above. Not done: '
+              + _not_done(ctx, step[0], server, pid) + '.')
+        print(f'Then run `{_hermes(ctx, "doctor")}`.' + _home_note(ctx))
+        finished = False
+    if not handed:
+        print(f'Exit code 1: {args.owner_token_file} was not written (your owner token is shown above instead).')
+    return 0 if finished and handed else 1
+
+
+# What a join that stopped on an unexpected error (a config file that cannot be written, say) had not done yet, by the
+# step it was in (_join; decision D-3 c). Each leaves the profile on the safe side (until its settings are written it
+# is not connected, Hermes asks before each commitment and its client signs no consent by itself) and says how to
+# finish, with commands that name this profile, and the server and the participant where the profile does not hold them.
+JOIN_NOT_DONE = {
+    'enroll': ("registering this agent's key: issue an enrollment code in the owner console ({server}/pilot#owner) with "
+               'your owner token, then run `{enroll}`'),
+    'credentials': ("storing this agent's key and token in this profile, although the server may hold the key: in the "
+                    'owner console ({server}/pilot#owner), with your owner token, revoke this agent, which gives a new '
+                    'enrollment code (a new code is refused while a key is registered; if the console shows no agent key, '
+                    'issue an enrollment code instead), then run `{enroll}`'),
+    'settings': ("this profile's settings: run `{server_cmd}` and `{pid_cmd}` (until then its Valun tools are not "
+                 'connected; the consent settings, process_consents and consents.*, stay off until you set them), and '
+                 'set where approvals happen in the owner console ({server}/pilot#owner)'),
+    'mandate': ("your owner mandate's approve_above (with --approvals console also review_deliveries): set them in the owner "
+                'console ({server}/pilot#owner); until then Hermes asks before each commitment'),
+    'approvals': ('console approvals in this profile: Hermes asks before each commitment until you run `{console_cmd}`'),
+    'report': 'nothing that join sets (only the rest of its report)',
+}
+
+
+def _not_done(ctx, step, server, pid):
+    return JOIN_NOT_DONE[step].format(
+        server=server, enroll=_hermes(ctx, f'enroll --server {server} --participant {pid}'),
+        server_cmd=_setting_cmd(ctx, 'server_url', server), pid_cmd=_setting_cmd(ctx, 'participant_id', pid),
+        console_cmd=_setting_cmd(ctx, 'confirm_commitments', 'false'))
+
+
+def _failure(e):
+    """What failed, as one word for this terminal: a ValunError's code, else the exception's class (OSError, say)."""
+    return e.code if isinstance(e, vc.ValunError) else type(e).__name__
+
+
+def _join_steps(args, ctx, c, store, j, server, owner, sandbox, step):
+    """`hermes valun join` once its owner token was handed over: register this agent's key, store it in Hermes's secret
+    store, write this profile's settings, pin the network, set the owner mandate, and say what is in force. step[0]
+    names the step it is in, for _join's message when an unexpected error stops it. Returns True when every step was
+    done; False after saying what is not done and how to finish it (with commands that name this profile)."""
+    pid = j['participant_id']
+    enroll = f'`{_hermes(ctx, f"enroll --server {server} --participant {pid}")}`'
     try:
         r = c.enroll(pid, j['enrollment_code'])
-    except vc.ValunError as e:
-        print(f"Your participant {pid} was created, but this agent's key could not be registered ({e.code}): {_terminal_text(e)}")
-        _hand_over(args, owner, server)
-        # Nothing is stored in this profile yet (no key), so the command names the server and the participant too.
-        print(f'To finish: issue an enrollment code in the owner console ({server}/pilot#owner) with your owner token, then '
-              f'run `{_hermes(ctx, f"enroll --server {server} --participant {pid}")}`.' + _home_note(ctx))
-        return 1
-    handed = _hand_over(args, owner, server)
-    finished = handed
+    except Exception as e:  # noqa: BLE001 - a request refused, or an answer this client could not take
+        # Nothing is stored in this profile yet (no key, no settings), so the command names the server and the
+        # participant too.
+        if isinstance(e, vc.ValunError):        # refused, or never reached the server: no key is registered
+            print(f"Your participant {pid} was created, but this agent's key could not be registered ({_failure(e)}): "
+                  f'{_terminal_text(e)}')
+            print(f'To finish: issue an enrollment code in the owner console ({server}/pilot#owner) with your owner token, '
+                  f'then run {enroll}.' + _home_note(ctx))
+            return False
+        # Not the request: the server registered the key (its answer reached this client, which then holds the
+        # participant id) or may have (no answer was read), and the key was not kept here. While a key is registered
+        # the server refuses a new enrollment code (already_enrolled); revoking the agent gives one.
+        held = 'holds' if c.state.get('participant_id') == pid else 'may hold'
+        print(f"Your participant {pid} was created, and the server {held} this agent's key, but the key could not be "
+              f'stored here ({_failure(e)}): {_terminal_text(e)}')
+        print(f'To finish: in the owner console ({server}/pilot#owner), with your owner token, revoke this agent, which '
+              'gives a new enrollment code (a new code is refused while a key is registered)'
+              + ('' if held == 'holds' else '; if the console shows no agent key, issue an enrollment code instead')
+              + f', then run {enroll}.' + _home_note(ctx))
+        return False
+    step[0] = 'credentials'
     stored = _hermes_config_set('VALUN_SIGNING_SECRET', store.secret()) and _hermes_config_set('VALUN_AGENT_TOKEN', store.token())
+    step[0] = 'settings'
     ctx.set_config('server_url', server)
     ctx.set_config('participant_id', pid)
     # Commitments: Hermes asks before each one ('conversation'), or not at all ('none'). 'console' keeps Hermes asking
@@ -412,24 +505,29 @@ def _join(args, ctx):
     ctx.set_config('confirm_commitments', args.approvals != 'none')
     # The local consent policy (design 6.6, decision D-2 g): a sandbox participant's client signs set-offs, transfers of
     # its own debt and payments to it by transfer by itself (process_consents on); an invited participant's policy signs
-    # set-offs and transfers of its own debt, and only once its owner turns process_consents on (off by default).
+    # set-offs and transfers of its own debt, and only once its owner turns process_consents on (off by default). Each
+    # consent is capped at the policy's max_PC (consents.max_PC). process_consents is written last, so a join stopped
+    # before it leaves the client signing no consent by itself.
     policy = va.SANDBOX_CONSENT_POLICY if sandbox else va.INVITE_CONSENT_POLICY
     for role in tools.CONSENT_ROLES:
         ctx.set_config(f'consents.{role}', policy[role] is True)
+    ctx.set_config('consents.max_PC', policy['max_PC'])
     if sandbox:
         ctx.set_config('process_consents', True)
     if args.direct_tools:
         _hermes_config_set('tools.tool_search.enabled', 'off')
+    finished = True
     print(f"Joined Valun as {args.handle} ({pid}) on {server}. This agent's key was generated here; public key {r['pubkey'][:16]}...")
     if stored:
         print('The agent token and signing key are stored in this Hermes profile (not shown).')
     else:
         finished = False
-        print('Hermes could not store the agent credentials. Revoke this agent in the owner console '
-              f'({server}/pilot#owner) with your owner token, issue an enrollment code there, then run '
-              f'`{_hermes(ctx, "enroll")}`.')
+        print('Hermes could not store the agent credentials, so this profile is not connected. In the owner console '
+              f'({server}/pilot#owner), with your owner token, revoke this agent, which gives a new enrollment code (a new '
+              f'code is refused while a key is registered), then run {enroll}.' + _home_note(ctx))
     if j.get('sandbox_only'):
         print(j.get('note') or 'Sandbox only: you can deal with the sandbox agents (sandbox-exact, sandbox-mallory) for a week.')
+    step[0] = 'mandate'
     try:
         c.me()            # the agent's first call: it shows as active in the directory from now on
     except vc.ValunError:
@@ -453,28 +551,30 @@ def _join(args, ctx):
         finished = False
     else:
         if args.approvals == 'console':
+            step[0] = 'approvals'
             ctx.set_config('confirm_commitments', False)
+        step[0] = 'report'
         print({'conversation': 'Approvals: before each offer, acceptance, credit note or payment with a note you hold, Hermes '
                                'asks you in the conversation.',
                'console': f'Approvals: commitments wait for you in the owner console ({server}/pilot#owner), including '
                           'accepting a delivery (its credit note or payment is made only after you approve it).',
                'none': 'Approvals: none. Your agent acts on its own within your limits '
                        f"(at most {limits.get('max_issue_per_deal')} PC per deal, {limits.get('max_issue_outstanding')} PC owed in total)."}[args.approvals])
+    step[0] = 'report'
     if circulating:
         if sandbox:
             print('Consents: your Valun client signs, by itself, set-offs that leave your net position unchanged, transfers of '
                   'your own debt and payments to you by transfer from the sandbox agents (up to '
-                  f"{policy['max_PC']} PC each), before Valun tool calls that are not read-only (process_consents on; "
-                  f'nothing runs in the background). Turn it off: `{_setting_cmd(ctx, "process_consents", "false")}`.')
+                  f"{policy['max_PC']} PC each), before Valun tool calls that are not read-only; set-offs and payments to "
+                  'you also before valun_status and valun_inbox, at most once a minute (process_consents on; nothing runs '
+                  f'in the background). Turn it off: `{_setting_cmd(ctx, "process_consents", "false")}`.')
         else:
             print('Consents: your Valun client signs none by itself (process_consents off). Once you turn it on '
                   f'(`{_setting_cmd(ctx, "process_consents", "true")}`) it signs set-offs that leave your net position '
                   'unchanged and transfers of your own debt; payments to you by transfer stay off (consents.as_new_creditor). '
                   f'`{_hermes(ctx, "consents")}` shows what waits.')
     print(f'Next: `{_hermes(ctx, "doctor")}`, then talk to your agent: `{_hermes(ctx, "-t valun", sub="chat")}`.' + _home_note(ctx))
-    if not handed:
-        print(f'Exit code 1: {args.owner_token_file} was not written (your owner token is shown above instead).')
-    return 0 if finished else 1
+    return finished
 
 
 def _status(ctx):
@@ -486,6 +586,8 @@ def _status(ctx):
     print(f"signing key set: {'yes' if sec else 'no'}")
     print(f"confirm commitments in Hermes: {tools.confirm_commitments(ctx)}")
     print(f"consent policy:  {_policy_line(store.kept_policy)}")
+    if _cap_problem(ctx):
+        print(f"consents.max_PC: {_cap_problem(ctx)}")
     print(f"consents:        {_consents_line(ctx, store)}")
     if store.unreadable is not None:
         print(f'records:         UNREADABLE ({_terminal_text(store.unreadable)}); your client signs nothing until it is fixed '

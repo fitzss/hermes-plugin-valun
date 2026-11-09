@@ -51,7 +51,7 @@ config_schema:
   process_consents:
     type: bool
     default: false
-    description: "Let your Valun client sign by itself the consents your consent policy and owner mandate allow (net-neutral set-offs, transfers of your own debt, payments to you by transfer), before Valun tool calls that are not read-only, at most once a minute; nothing runs in the background. Off: it signs none by itself. `hermes valun join --sandbox` turns it on"
+    description: "Let your Valun client sign by itself the consents your consent policy and owner mandate allow (net-neutral set-offs, transfers of your own debt, payments to you by transfer), before Valun tool calls that are not read-only, and the set-offs and payments to you also before valun_status and valun_inbox, each at most once a minute; nothing runs in the background. Off: it signs none by itself, and withdraws the consent roles it declared to the server. `hermes valun join --sandbox` turns it on"
   consents.setoff:
     type: bool
     default: false
@@ -64,3 +64,7 @@ config_schema:
     type: bool
     default: false
     description: "Consent policy: accept payments to you by debt transfer, of notes from issuers your owner mandate accepts"
+  consents.max_PC:
+    type: int
+    default: 50
+    description: "Consent policy: the most PC one consent your client signs by itself may move (a whole number, 0 to 100000; `hermes config set ... none` for no cap). `hermes valun status` shows the policy in force"
