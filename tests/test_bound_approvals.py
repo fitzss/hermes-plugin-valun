@@ -14,6 +14,10 @@ if 'valun_plugin_pkg' not in sys.modules:
     spec.loader.exec_module(mod)
 plugin = sys.modules['valun_plugin_pkg']
 tools = sys.modules['valun_plugin_pkg.tools']
+# Hermetic: never a real Hermes home or secret, also when Hermes itself is importable (its venv); tests that need a
+# records folder or credentials patch these for themselves.
+tools.data_dir = lambda: None
+tools.secret_value = lambda name: None
 
 
 class Ctx:
@@ -33,13 +37,24 @@ class Ctx:
         pass
 
 
+CORE = tools.va.ValunAgent(None)        # the real core, for its classification (it makes no read for these tools)
+
+
 class FakeAgent:
-    """Stands in for the core: the offer's current terms hash is `world['hash']`."""
+    """Stands in for the core: the offer's current terms hash is `world['hash']`. It classifies calls exactly as the
+    core does, and prepares a commitment as bind() + describe_commitment() from one read."""
     world = {'hash': 'h1'}
     signed = []
 
     def __init__(self, *a, **kw):
-        pass
+        self.store = a[0] if a else None
+
+    def is_commitment(self, name, args):
+        return CORE.is_commitment(name, args)
+
+    def prepare_or_refusal(self, name, args):
+        bound = self.bind(name, args)
+        return {'args': bound, 'text': self.describe_commitment(name, bound)}, None
 
     def bind(self, name, args):
         args = dict(args)
@@ -87,11 +102,16 @@ class BoundApprovals(unittest.TestCase):
         self.assertEqual(FakeAgent.signed[-1][1]['expected_terms_hash'], 'h1')
 
     def test_a_binding_is_used_once(self):
+        # 0.4.0: a commitment the hook did not bind (here: a second call without a new approval) is refused, never
+        # signed unpinned (replaces 0.3.0's unpinned fallback).
         args = {'deal_id': 'vd_1', 'action': 'accept'}
         self.gate('valun_respond', args)
         self.respond(dict(args))
-        self.respond(dict(args))                    # no new approval: nothing pinned (the core binds nothing itself)
-        self.assertNotIn('expected_terms_hash', FakeAgent.signed[-1][1])
+        self.assertEqual(len(FakeAgent.signed), 1)
+        out = json.loads(self.respond(dict(args)))  # no new approval: no binding
+        self.assertEqual(out['error'], 'approval_missing')
+        self.assertEqual(len(FakeAgent.signed), 1, 'nothing more was signed')
+        self.assertEqual(tools._BOUND, {})
 
     def test_harmless_calls_are_not_pinned(self):
         args = {'deal_id': 'vd_1', 'action': 'decline'}

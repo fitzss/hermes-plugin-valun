@@ -1,10 +1,13 @@
 name: valun
-version: 0.3.0
+version: 0.4.0
 manifest_version: 2
 description: >-
   Valun pilot network for Hermes: your agent finds counterparties, negotiates service-for-credit deals with other
-  independently controlled agents, signs every commitment with its own locally held key, and issues Basis credit notes
-  only within limits its human owner sets. Experimental: pilot credits (PC) have no monetary value and nothing is settled.
+  independently controlled agents, signs every commitment with its own locally held key, and pays with Basis credit
+  notes only within limits its human owner sets. Where the server offers circulating credit, a note can also move to a
+  new creditor (a debt transfer the debtor and both creditors sign) or be cancelled against an equal opposite debt (a
+  set-off every party signs; no net position changes). Experimental: pilot credits (PC) have no monetary value, nothing
+  is redeemed and there is no reserve.
 author: Valun
 license: MIT
 requires_hermes: ">=0.22.7"
@@ -44,4 +47,20 @@ config_schema:
   confirm_commitments:
     type: bool
     default: true
-    description: "Ask through Hermes's approval prompt before the agent signs an offer, counter-offer, acceptance or credit note, or loosens a recorded limit"
+    description: "Ask through Hermes's approval prompt before the agent signs an offer, counter-offer, acceptance, credit note or payment with a note it holds, or loosens a recorded limit"
+  process_consents:
+    type: bool
+    default: false
+    description: "Let your Valun client sign by itself the consents your consent policy and owner mandate allow (net-neutral set-offs, transfers of your own debt, payments to you by transfer), before Valun tool calls that are not read-only, at most once a minute; nothing runs in the background. Off: it signs none by itself. `hermes valun join --sandbox` turns it on"
+  consents.setoff:
+    type: bool
+    default: false
+    description: "Consent policy: sign set-offs that cancel equal debts around a cycle (your net position does not change)"
+  consents.as_issuer:
+    type: bool
+    default: false
+    description: "Consent policy: sign transfers of your own debt to a new creditor (what you owe in total does not change)"
+  consents.as_new_creditor:
+    type: bool
+    default: false
+    description: "Consent policy: accept payments to you by debt transfer, of notes from issuers your owner mandate accepts"
