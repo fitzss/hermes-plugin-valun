@@ -221,8 +221,9 @@ def _consents_line(ctx, store):
         return ('signed by your client by itself, before Valun tool calls that are not read-only, at most once a minute; '
                 'set-offs and payments to you by transfer also before valun_status and valun_inbox (process_consents on; '
                 'nothing runs in the background)')
-    return (f'none signed by itself (process_consents off); `{_hermes(ctx, "consents --process")}` signs them when you '
-            'run it')
+    return (f'none signed by itself (process_consents off), and your client declares no consent role, so the server '
+            f'proposes none that would wait for it; `{_hermes(ctx, "consents --process")}` signs any that still wait '
+            'when you run it')
 
 
 def _cap_problem(ctx):

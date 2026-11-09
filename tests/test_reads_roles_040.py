@@ -376,6 +376,14 @@ class RolesWithdrawn(Base):
         self.assertEqual(self.records()['consent_roles_declared'], 'setoff,issuer')
         self.assertNotIn('consents/1;roles=', [c for _m, _r, c in self.wire.log])
 
+    def test_status_says_that_off_declares_no_role(self):
+        out = io.StringIO()
+        with mock.patch('sys.stdout', out):
+            plugin._status(Ctx(**SANDBOX))
+        self.assertIn('none signed by itself (process_consents off), and your client declares no consent role, so the '
+                      'server proposes none that would wait for it', out.getvalue())
+        self.assertEqual(self.wire.log, [], 'status asks the server nothing')
+
     def test_never_declared_nothing_is_withdrawn(self):
         self.call(Ctx(**SANDBOX), 'valun_status')
         self.assertEqual([c for _m, _r, c in self.wire.log], [None] * len(self.wire.log))
