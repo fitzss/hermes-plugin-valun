@@ -173,14 +173,28 @@ data_dir = plugin_data_folder       # the store's folder (the tests stand in for
 _PROFILE_RE = re.compile(r'[a-z0-9][a-z0-9_-]{0,63}\Z')
 
 
+def _home_is_profile(name):
+    """True when this process's Hermes home is the named profile NAME, <Hermes root>/profiles/NAME, compared the way
+    Hermes's get_active_profile_name compares it; False when it is not, or when Hermes cannot say."""
+    try:
+        from hermes_constants import get_default_hermes_root, get_hermes_home
+        return get_hermes_home().resolve() == (get_default_hermes_root() / 'profiles' / name).resolve()
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def profile_name(ctx):
     """This Hermes profile's name ('default' or the name under profiles/), or None for a Hermes home that is no named
-    profile (a HERMES_HOME set to another folder)."""
+    profile. Hermes calls such a home 'custom' (a folder under profiles/ whose name is no profile id), and also calls
+    a profile really named custom so: that one, <Hermes root>/profiles/custom, keeps its name, since `hermes -p custom`
+    is the command that reaches it."""
     try:
         name = getattr(ctx, 'profile_name', None)
     except Exception:  # noqa: BLE001
         name = None
-    return name if isinstance(name, str) and _PROFILE_RE.match(name) and name != 'custom' else None
+    if not (isinstance(name, str) and _PROFILE_RE.match(name)):
+        return None
+    return None if name == 'custom' and not _home_is_profile('custom') else name
 
 
 def hermes_cmd(ctx, rest, sub='valun'):

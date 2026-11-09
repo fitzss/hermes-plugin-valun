@@ -1,8 +1,13 @@
 """0.4.0 texts the owner and the agent act on: the profile a printed command names (a Hermes home Hermes calls 'custom'
-is no named profile), the core's `valun join --sandbox` as this profile's Hermes command, the read run (decision D-3 a)
+is no named profile, unless it is the profile really named custom), the core's `valun join --sandbox` as this profile's Hermes command, the read run (decision D-3 a)
 in what status, join and the agent's approvals text say, and join's word for whether the server holds the agent's key.
 Offline: the fake server and helpers of test_cli_040, throwaway tokens, temporary folders."""
+import importlib.util
 import os
+import pathlib
+import sys
+import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -31,6 +36,43 @@ class Profiles(unittest.TestCase):
             self.assertEqual(tools.hermes_cmd(self.ctx(name), 'doctor'), 'hermes valun doctor', name)
             self.assertEqual(tools.setting_cmd(self.ctx(name), 'process_consents', 'true'),
                              'hermes config set plugins.entries.valun.settings.process_consents true', name)
+
+    def fake_hermes(self, home, root):
+        fake = types.ModuleType('hermes_constants')
+        fake.get_hermes_home = lambda: home
+        fake.get_default_hermes_root = lambda: root
+        return mock.patch.dict(sys.modules, {'hermes_constants': fake})
+
+    def test_a_profile_really_named_custom_keeps_its_name(self):
+        """Hermes also calls <root>/profiles/custom 'custom', and `hermes -p custom` is what reaches that profile; a
+        folder under profiles/ whose name is no profile id (Hermes: 'custom' too) still gets plain commands."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / '.hermes'
+            with self.fake_hermes(root / 'profiles' / 'custom', root):
+                self.assertEqual(tools.profile_name(self.ctx('custom')), 'custom')
+                self.assertEqual(tools.hermes_cmd(self.ctx('custom'), 'doctor'), 'hermes -p custom valun doctor')
+                self.assertEqual(tools.setting_cmd(self.ctx('custom'), 'process_consents', 'true'),
+                                 'hermes -p custom config set plugins.entries.valun.settings.process_consents true')
+            for home in (root / 'profiles' / 'Bad', pathlib.Path(tmp) / 'elsewhere' / 'custom'):
+                with self.fake_hermes(home, root):
+                    self.assertIsNone(tools.profile_name(self.ctx('custom')), home)
+                    self.assertEqual(tools.hermes_cmd(self.ctx('custom'), 'doctor'), 'hermes valun doctor', home)
+        with mock.patch.dict(sys.modules, {'hermes_constants': None}):      # Hermes cannot say: plain commands
+            self.assertIsNone(tools.profile_name(self.ctx('custom')))
+
+    @unittest.skipIf(importlib.util.find_spec('hermes_constants') is None, 'needs Hermes (run with the Hermes venv)')
+    def test_hermes_itself_agrees_on_a_profile_named_custom(self):
+        """With Hermes installed: the name Hermes gives each home, and the command the plugin prints for it."""
+        from hermes_cli.profiles import get_active_profile_name
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / '.hermes'
+            want = {root / 'profiles' / 'custom': 'hermes -p custom valun doctor',
+                    root / 'profiles' / 'work': 'hermes -p work valun doctor',
+                    root / 'profiles' / 'Bad': 'hermes valun doctor'}
+            for home, cmd in want.items():
+                home.mkdir(parents=True)
+                with mock.patch.dict(os.environ, {'HERMES_HOME': str(home)}):
+                    self.assertEqual(tools.hermes_cmd(self.ctx(get_active_profile_name()), 'doctor'), cmd, home)
 
 
 class CoreCommands(unittest.TestCase):
