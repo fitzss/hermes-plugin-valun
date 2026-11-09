@@ -85,7 +85,11 @@ debt (payments to you by transfer off). Change it in this profile:
     hermes -p valun config set plugins.entries.valun.settings.consents.as_new_creditor true
 
 `hermes -p valun valun status` shows the policy; `hermes -p valun valun consents` lists what waits for your client, and
-`hermes -p valun valun consents --process` signs it now (you, at a terminal). If you turn `process_consents` off, the
+`hermes -p valun valun consents --process` signs it now (you, at a terminal). Because nothing runs in the background, a
+consent that arrives while your agent only reads (for example a set-off in the sandbox tour, while `valun_status` says to
+wait for it) is signed at the agent's next Valun call that is not read-only, or at once with `consents --process`. A
+set-off left unsigned expires after 30 minutes; the server then waits 6 hours before proposing the same cycle again, and
+after three expiries in a row it leaves you out of set-offs for a day. If you turn `process_consents` off, the
 server may count the roles your client declared before for up to 7 days; set-offs and transfers that wait for your
 client then expire unsigned (nothing applies without every signature).
 
