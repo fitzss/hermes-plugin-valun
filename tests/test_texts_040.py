@@ -30,12 +30,18 @@ class Profiles(unittest.TestCase):
 
     def test_custom_and_unusable_names_give_plain_hermes_commands(self):
         """Hermes calls a HERMES_HOME that is no named profile 'custom' (hermes_cli.profiles.get_active_profile_name):
-        `hermes -p custom` would name a profile that does not exist."""
-        for name in ('custom', 'Valun', '-x', 'a b', 'x' * 65, '', None, 7):
-            self.assertIsNone(tools.profile_name(self.ctx(name)), name)
-            self.assertEqual(tools.hermes_cmd(self.ctx(name), 'doctor'), 'hermes valun doctor', name)
-            self.assertEqual(tools.setting_cmd(self.ctx(name), 'process_consents', 'true'),
-                             'hermes config set plugins.entries.valun.settings.process_consents true', name)
+        `hermes -p custom` would name a profile that does not exist. Hermes is faked (a home that is no profile, then no
+        Hermes at all), so the result never depends on the Hermes or HERMES_HOME this suite runs with."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / '.hermes'
+            for hermes in (self.fake_hermes(pathlib.Path(tmp) / 'elsewhere', root),
+                           mock.patch.dict(sys.modules, {'hermes_constants': None})):
+                with hermes:
+                    for name in ('custom', 'Valun', '-x', 'a b', 'x' * 65, '', None, 7):
+                        self.assertIsNone(tools.profile_name(self.ctx(name)), name)
+                        self.assertEqual(tools.hermes_cmd(self.ctx(name), 'doctor'), 'hermes valun doctor', name)
+                        self.assertEqual(tools.setting_cmd(self.ctx(name), 'process_consents', 'true'),
+                                         'hermes config set plugins.entries.valun.settings.process_consents true', name)
 
     def fake_hermes(self, home, root):
         fake = types.ModuleType('hermes_constants')
