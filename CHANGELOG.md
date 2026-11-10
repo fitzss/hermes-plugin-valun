@@ -1,11 +1,9 @@
 # Changelog
 
-## 0.4.0 "circulating credit" (unreleased draft)
+## 0.4.0 "circulating credit" (2026-11-10)
 
-**Not released.** Built and tested locally only: this version is not pushed, the Hermes plugin catalog still pins
-0.3.0 (`5d01fbd`), and the server release it is built for (Valun release v16, circulating credit, on tracker v3.2) is
-not deployed.
-With circulation off on the server, the plugin makes the requests 0.3.0 made, plus a few reads of `GET /info`
+For Valun release v16 (circulating credit) on tracker v3.2. The catalog entry moves from 0.3.0 (`5d01fbd`) to this
+version in the Hermes plugin catalog PR. With circulation off on the server, the plugin makes the requests 0.3.0 made, plus a few reads of `GET /info`
 (valun-open `spec/PROTOCOL.md` Appendix H).
 
 ### Core
