@@ -447,6 +447,15 @@ class Joined(Base):
         self.assertEqual(code, 0, out)
         self.assertIn('records no payment attempts', out)
 
+    def test_attempts_list_advice_quotes_the_attempt(self):
+        # Post-audit: unquoted, '#1' starts a comment in bash, zsh and PowerShell, so the advice says to quote it.
+        server = Server({('GET', '/pilot/v1/info'): dict(PINS, network='valun-pilot-1', unit='PC', features=[])})
+        with mock.patch.object(vc.Client, 'payment_attempts', return_value=[self.plan()['attempt']]):
+            code, out = self.run_cli(self.ctx, server, 'attempts', 'list')
+        self.assertEqual(code, 0, out)
+        self.assertIn('`hermes -p valun-test valun attempts resolve DEAL ATTEMPT --applied`', out)
+        self.assertIn("ATTEMPT is '#n' in quotes (unquoted, a # starts a comment in the shell)", out)
+
     def test_attempts_resolve_needs_a_person_at_the_terminal(self):
         with mock.patch.object(vc.Client, 'resolve_attempt') as resolve:
             code, out = self.run_cli(self.ctx, Server({}), 'attempts', 'resolve', 'vd_0000000000000001', '#1', '--not-applied')
@@ -509,14 +518,46 @@ class Joined(Base):
         self.assertIn('The server did not record this payment as applied (payee_edge_not_applied, payee edge: '
                       "moved_past). Nothing was changed, at the server or in your client's records.", out)
         self.assertIn("moved past the transfer's timestamp at its earlier total", out)
-        self.assertIn(f'`hermes -p valun-test valun attempts resolve {deal} #1 --not-applied`', out)
+        # The attempt is quoted: pasted into bash, zsh or PowerShell, an unquoted '#1 --not-applied' is a comment.
+        self.assertIn(f"`hermes -p valun-test valun attempts resolve {deal} '#1' --not-applied`", out)
+        self.assertNotIn(' #1 --not-applied', out)
         self.assertIn('ask the operator to look into it with the payee, and do not resolve it until then', out)
+        self.assertNotIn('INCONSISTENT', out)
         self.assertNotIn("client's records only?", out)
         self.assertNotIn('\x1b', out)
         self.assertNotIn(OWNER, out)
         disk = self.records()                                       # nothing resolved, nothing recorded as paid
         self.assertEqual(disk.get('transfer_attempts') or {}, {})
         self.assertNotIn('paid_deals', disk.get('records') or {})
+
+    def test_attempts_resolve_an_inconsistent_attempt_is_the_operators_case(self):
+        # Post-audit, as `valun attempts resolve`: for a transfer the server reads as inconsistent, the plan says before
+        # the question that it is the operator's case, and the payee_edge_not_applied refusal names no --not-applied
+        # command (resolving it as not applied on the payee's word could pay the deal twice).
+        deal, sid = 'vd_0000000000000001', 'vt_0123456789abcdef'
+        row = dict(self.plan()['attempt'], attempt_id=sid, route='transfer')
+        plan = {'deal_id': deal, 'attempt': row, 'attempts': [row], 'attempt_id': sid, 'route': 'transfer',
+                'transfer': {'id': sid, 'state': 'inconsistent', 'timestamp': row['timestamp'], 'edge': row['edge'],
+                             'total': row['total']}, 'server': True, 'local': None}
+        token_file = os.path.join(self.dir, 'owner.txt')
+        with open(token_file, 'w', encoding='utf-8') as f:
+            f.write(OWNER + '\n')
+        route = ('POST', f'/pilot/v1/owner/deals/{deal}/attempts/{sid}/resolve')
+        server = Server({('GET', '/pilot/v1/info'): dict(PINS, network='valun-pilot-1', unit='PC', features=['circulation/1']),
+                         route: vc.ValunError('payee_edge_not_applied', "the payee's edge does not show it", 409,
+                                              {'payee_edge': 'moved_past'})})
+        with mock.patch.object(vc.Client, 'resolution_plan', return_value=plan), \
+                mock.patch('builtins.input', side_effect=['y']):
+            code, out = self.run_cli(self.ctx, server, 'attempts', 'resolve', deal, '#1', '--applied',
+                                     '--owner-token-file', token_file, tty=True)
+        self.assertEqual(code, 1, out)
+        self.assertIn('The server reads this transfer as INCONSISTENT', out)
+        self.assertLess(out.index('INCONSISTENT'), out.index('<- this one'))      # in the plan, before the question
+        self.assertIn('Do not resolve it until the operator has looked into it.', out)
+        self.assertNotIn('--not-applied`', out)
+        self.assertNotIn(OWNER, out)
+        disk = self.records()
+        self.assertEqual(disk.get('transfer_attempts') or {}, {})
 
     def test_attempts_resolve_declined_changes_nothing(self):
         with mock.patch.object(vc.Client, 'resolution_plan', return_value=self.plan()), \
