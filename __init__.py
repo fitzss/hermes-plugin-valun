@@ -768,6 +768,23 @@ def _edges_now(c):
     return {'edges': read['edges'], 'doubtful': read['doubtful']}
 
 
+def _payee_edge_text(ctx, args, e):
+    """What `hermes valun attempts resolve --applied` prints when the server answers 409 payee_edge_not_applied (the
+    payee's edge on the tracker does not show the transfer; resolve_attempt raises it with the reason in its message), as
+    `valun attempts resolve` does: what happened, and the two ways on, with this profile's exact command. No resolution
+    in the client's records only is offered for it."""
+    edge = (e.extra or {}).get('payee_edge')
+    again = f'attempts resolve {_terminal_text(args.valun_deal, 40)} {_terminal_text(args.valun_attempt, 40)} --not-applied'
+    return '\n'.join([
+        'The server did not record this payment as applied (payee_edge_not_applied'
+        + (f', payee edge: {_terminal_text(edge, 40)}' if edge else '') + '). Nothing was changed, at the server or in '
+        "your client's records.",
+        '  ' + _terminal_text(e, 600) + '.',
+        f'  If the payee confirms the payment did not arrive, resolve it as not applied: `{_hermes(ctx, again)}`.',
+        '  If the payee says it arrived, ask the operator to look into it with the payee, and do not resolve it until '
+        'then.'])
+
+
 def _ask_local():
     print("  Recording it in your client's records only changes what your client does: if the server does hold this payment "
           'as unresolved, it keeps blocking the deal there.')
@@ -850,6 +867,9 @@ def _attempts(args, ctx):
     print('  Do this only after the payee told you whether this payment arrived.')
     if plan['server']:
         print("  The server is told first (with your owner token, used once and not stored); then your client's records.")
+        if outcome == 'applied':
+            print("  The server records it as applied only if the payee's edge on the tracker shows this transfer; "
+                  'otherwise it refuses, and nothing changes.')
     else:
         print('  ' + LOCAL_WHY[plan['local']].format(state=(plan.get('transfer') or {}).get('state') or 'ended'))
     for r in plan['attempts']:
@@ -876,6 +896,9 @@ def _attempts(args, ctx):
     try:
         r = c.resolve_attempt(deal, attempt, outcome, owner, note=note, local_only=local_only, expected_attempt=confirmed, **read)
     except vc.ValunError as e:
+        if e.code == 'payee_edge_not_applied':
+            print(_payee_edge_text(ctx, args, e))
+            return 1
         if not (e.extra or {}).get('local_possible') or local_only:
             print(f'{e.code}: {_owner_text(ctx, e)}')
             return 1

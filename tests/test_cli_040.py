@@ -481,6 +481,43 @@ class Joined(Base):
         self.assertIn("Your client's records now hold it for 1 attempt(s) of this deal.", out)
         self.assertNotIn(OWNER, out)
 
+    def test_attempts_resolve_applied_refused_by_the_payees_edge_says_what_to_do(self):
+        # valun-app SV-AUTH-1: the server answers 409 payee_edge_not_applied {payee_edge} to 'applied' while the payee's
+        # edge on the tracker does not show the transfer. The core's resolve_attempt (not mocked) raises it with the
+        # reason; the command says why and names the two ways on (this profile's exact --not-applied command, or the
+        # operator), as `valun attempts resolve` does, and offers no resolution in the client's records only.
+        deal, sid = 'vd_0000000000000001', 'vt_0123456789abcdef'
+        row = dict(self.plan()['attempt'], attempt_id=sid, route='transfer')
+        plan = {'deal_id': deal, 'attempt': row, 'attempts': [row], 'attempt_id': sid, 'route': 'transfer',
+                'transfer': {'id': sid, 'state': 'outcome_unknown', 'timestamp': row['timestamp'], 'edge': row['edge'],
+                             'total': row['total']}, 'server': True, 'local': None}
+        token_file = os.path.join(self.dir, 'owner.txt')
+        with open(token_file, 'w', encoding='utf-8') as f:
+            f.write(OWNER + '\n')
+        route = ('POST', f'/pilot/v1/owner/deals/{deal}/attempts/{sid}/resolve')
+        server = Server({('GET', '/pilot/v1/info'): dict(PINS, network='valun-pilot-1', unit='PC', features=['circulation/1']),
+                         route: vc.ValunError('payee_edge_not_applied', "the payee's edge does not show it\x1b[2J", 409,
+                                              {'payee_edge': 'moved_past'})})
+        with mock.patch.object(vc.Client, 'resolution_plan', return_value=plan), \
+                mock.patch('builtins.input', side_effect=['y']):          # one confirmation; no second question follows
+            code, out = self.run_cli(self.ctx, server, 'attempts', 'resolve', deal, '#1', '--applied',
+                                     '--owner-token-file', token_file, tty=True)
+        self.assertEqual(code, 1, out)
+        self.assertEqual([(m, p, b, t) for m, p, b, t in server.log if (m, p) == route],
+                         [('POST', route[1], {'outcome': 'applied'}, OWNER)])
+        self.assertIn("The server records it as applied only if the payee's edge on the tracker shows this transfer", out)
+        self.assertIn('The server did not record this payment as applied (payee_edge_not_applied, payee edge: '
+                      "moved_past). Nothing was changed, at the server or in your client's records.", out)
+        self.assertIn("moved past the transfer's timestamp at its earlier total", out)
+        self.assertIn(f'`hermes -p valun-test valun attempts resolve {deal} #1 --not-applied`', out)
+        self.assertIn('ask the operator to look into it with the payee, and do not resolve it until then', out)
+        self.assertNotIn("client's records only?", out)
+        self.assertNotIn('\x1b', out)
+        self.assertNotIn(OWNER, out)
+        disk = self.records()                                       # nothing resolved, nothing recorded as paid
+        self.assertEqual(disk.get('transfer_attempts') or {}, {})
+        self.assertNotIn('paid_deals', disk.get('records') or {})
+
     def test_attempts_resolve_declined_changes_nothing(self):
         with mock.patch.object(vc.Client, 'resolution_plan', return_value=self.plan()), \
                 mock.patch.object(vc.Client, 'resolve_attempt') as resolve, mock.patch('builtins.input', side_effect=['n']):

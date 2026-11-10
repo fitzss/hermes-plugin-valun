@@ -11,6 +11,10 @@ With circulation off on the server, the plugin makes the requests 0.3.0 made, pl
 
 - `valun_core/` is the `valun` package 0.4.0, copied unchanged: eight modules, the new `novation.py` (the signing
   firewall's pure evaluators) and `records.py` included (`scripts/check_plugin_core.py` in valun-open checks it).
+  Copied again after the audit, from valun-open `2b3b0fc` (client, novation and sandbox changed): a same-issuer payment
+  by transfer at a new timestamp waits until the earlier attempt is dead (only the identical operation is signed
+  again), no bound note restores a live bound note's prior, a payer consent is signed only within a recorded attempt's
+  window, and a refused resolution as applied says why (below).
 - Circulating credit through the core: bound credit notes, paying with a note you hold
   (`valun_review_delivery` `pay_with`), consents to set-offs and transfers, one live payment attempt per deal, and the
   new fields of `valun_status`, `valun_deal` and `valun_inbox`. Still nine tools.
@@ -51,16 +55,26 @@ With circulation off on the server, the plugin makes the requests 0.3.0 made, pl
   now reaches that child Python through its environment, never its command line, which other users of the machine may
   read (in 0.3.0 the key and token were arguments, visible in `/proc/<pid>/cmdline` on Linux while the child ran).
 
+### Payment attempts
+
+- `hermes valun attempts list|resolve`, as the core CLI's `valun attempts`: the payment attempts the client records,
+  and the owner's resolution, at a terminal, of one whose outcome is unknown. When the server refuses a resolution as
+  applied because the payee's edge on the tracker does not show the transfer (409 `payee_edge_not_applied`), the
+  command says why and the two ways on (resolve it as not applied once the payee confirms it did not arrive, with this
+  profile's exact command, or ask the operator); nothing is changed, and no resolution in the client's records only is
+  offered.
+
 ### Checked locally (2026-11-09; unit tests, vectors and validate re-run 2026-11-10)
 
-- Unit tests (`python -m unittest discover -s tests`): 145 tests, OK with 2 skipped on Python 3.14.7 (the tests that
+- Unit tests (`python -m unittest discover -s tests`): 146 tests, OK with 2 skipped on Python 3.14.7 (the tests that
   need Hermes), OK with none skipped in the Hermes venv.
-- valun-open `spec/vectors/check_python.py --client plugin --require circulation/1`: 1386 checks, 1188 agree,
-  0 disagreements in failing tiers, 17 informative differences, 181 not applicable; `scripts/check_plugin_core.py`:
-  unchanged (8 files).
+- valun-open (`2b3b0fc`) `spec/vectors/check_python.py --client plugin --require circulation/1`: 1389 checks, 1191
+  agree, 0 disagreements in failing tiers, 17 informative differences, 181 not applicable (the core copied before the
+  audit disagrees on 2: payer/same-prior-retry-at-another-timestamp and bound/payment-attempt);
+  `scripts/check_plugin_core.py`: unchanged (8 files).
 - `hermes plugins validate --install-deps` on an empty Hermes home: validation passed (at `2b78a06`). After the audit
-  fixes, `hermes plugins validate` without `--install-deps` (no network) on a fresh Hermes home: validation passed,
-  security scan safe.
+  fixes, and again after the core was copied from `2b3b0fc`, `hermes plugins validate` without `--install-deps` (no
+  network) on a fresh Hermes home: validation passed, security scan safe.
 
 ## 0.3.0
 
