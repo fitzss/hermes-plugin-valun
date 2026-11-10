@@ -31,6 +31,15 @@ With circulation off on the server, the plugin makes the requests 0.3.0 made, pl
     before anything is asked for or signed (no ordinary note instead), and payer and payee consents wait, neither
     signed nor refused (so, on such a server, payments to you by transfer are not signed before `valun_status` and
     `valun_inbox` either). Set-offs and transfers of your own debt are not gated.
+  Copied again after the review of tracker v3.2, from valun-open `64ba97a` (client and novation changed):
+  - Every transfer and bound-note attempt the client records carries `ack: "basis/prior-ack/1"` (its prior slot was
+    signed as PA), and the same-prior retry exemption applies only when the earlier attempt carries it too. An earlier
+    attempt recorded without it (by a 0.4.0 build before tracker v3.2, which signed the 80-byte acknowledgment, or by
+    the first v3.2 build) waits for its window, as before tracker v3.2: one wait for attempts recorded before this
+    copy.
+  - The record of what was signed at an edge and timestamp also holds the prior state a prior acknowledgment there
+    acknowledged (`prior_state`), and a second prior acknowledgment of another prior state at the same edge, timestamp
+    and operation is refused (`timestamp_reused`), as the server's own signer refuses it.
 - Circulating credit through the core: bound credit notes, paying with a note you hold
   (`valun_review_delivery` `pay_with`), consents to set-offs and transfers, one live payment attempt per deal, and the
   new fields of `valun_status`, `valun_deal` and `valun_inbox`. Still nine tools.
@@ -82,8 +91,16 @@ With circulation off on the server, the plugin makes the requests 0.3.0 made, pl
   the server reads as inconsistent (one edge applied, the other not), the command says before it asks that this is the
   operator's case, and offers no `--not-applied` command: resolving it as not applied could pay the deal twice.
 
-### Checked locally (2026-11-09; re-run 2026-11-10 at `11e7be5`, and with the core of `836750a` at `ecbe0bc`)
+### Checked locally (2026-11-09; re-run 2026-11-10 at `11e7be5`, with the core of `836750a` at `ecbe0bc`, and with the core of `64ba97a` at `e5fb106`)
 
+- At `e5fb106`, with the core of valun-open `64ba97a` (the vectors of `95d23c4`, regenerated from valun-app
+  `b7ecca0`, tracker v3.2): unit tests 150, OK with 2 skipped on Python 3.14.7 and OK with none skipped in the Hermes
+  venv (Python 3.14.7), no test changed; `scripts/check_plugin_core.py`: unchanged (8 files);
+  `spec/vectors/check_python.py --client plugin --require circulation/1`: 1461 checks, 1260 agree, 0 disagreements in
+  failing tiers, 17 informative differences, 184 not applicable, the package's line (`--client package` at
+  `95d23c4`); without `--require`: 1459 checks, 1104 agree, 0 disagreements, 17 informative, 338 not applicable.
+  Before the copy (the core of `836750a`), with `--require`: 1251 agree, 9 disagreements (the four new decisions and
+  the records expected after transcript steps 178, 182, 206, 214 and 222). The rest of this list is from before.
 - Unit tests (`python -m unittest discover -s tests`): 150 tests, OK with 2 skipped on Python 3.14.7 (the tests that
   need Hermes), OK with none skipped in the Hermes venv (148 at `11e7be5`; the 2 new ones: a payment to you by
   transfer waits during `valun_status` on a server without the tracker v3.2 contract, and goes past the gate with it).
