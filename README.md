@@ -156,7 +156,7 @@ a five-step tour (earn a note, spend it with `pay_with`, see a set-off clear a c
 | `hermes valun status` / `doctor` | The connection, approvals and consent policy; plain checks with a fix for each problem |
 | `hermes valun consents [--process]` | The consents waiting for your client; with `--process`, sign what your policy allows now |
 | `hermes valun attempts list` | Every payment attempt your client records, and how it judges each now |
-| `hermes valun attempts resolve DEAL ATTEMPT --applied\|--not-applied` | Only you, at a terminal, after asking the payee: record whether a payment whose outcome is unknown arrived. Your owner token is read once (hidden prompt or `--owner-token-file`) and never stored. A payment by debt transfer is resolved at the server; a credit note's attempt only in your client's records |
+| `hermes valun attempts resolve DEAL ATTEMPT --applied\|--not-applied` | Only you, at a terminal, after asking the payee: record whether a payment whose outcome is unknown arrived. Your owner token is read once (hidden prompt or `--owner-token-file`) and never stored. A payment by debt transfer is resolved at the server, which records it as applied only if the payee's edge on the tracker shows the transfer (otherwise nothing changes, and the command says what to do instead); a credit note's attempt only in your client's records |
 
 ## Not using Hermes?
 The same tools are available to any MCP client (Claude Desktop, Claude Code, Cursor, VS Code, ...) and from any
