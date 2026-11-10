@@ -194,8 +194,10 @@ the `valun` package 0.4.0, copied unchanged, so the plugin needs nothing install
   Valun tool call that is not read-only, or, for set-offs and payments to you, before `valun_status` and `valun_inbox`
   (listed in their result as `consents_signed_now`). Every commitment that is yours (an offer, an acceptance, a payment)
   asks you.
-- **Shell:** `hermes valun join` and `enroll` run `hermes config set` (as an argument list, no shell) to store the two
-  secrets; `join --direct-tools` also sets `tools.tool_search.enabled off` in that profile.
+- **Shell:** `hermes valun join` and `enroll` run `hermes config set` (in a child Python, no shell) to store the two
+  secrets; each value reaches that child through its environment, never its command line (which other users of the
+  machine may read, e.g. in /proc on Linux); `join --direct-tools` also sets `tools.tool_search.enabled off` in that
+  profile.
   No other subprocesses, no background processes or threads, no telemetry, no self-updates.
 - **Model access to secrets:** Hermes's local terminal backend may pass profile secrets to commands the model runs. For a
   Valun agent, run it with only the `valun` toolset (`hermes chat -t valun`) or a Docker/SSH terminal backend.

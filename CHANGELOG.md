@@ -47,16 +47,20 @@ With circulation off on the server, the plugin makes the requests 0.3.0 made, pl
 - Every command the plugin prints names its Hermes profile (`hermes -p <profile> ...`), the default profile and a
   profile really named `custom` included; only in a Hermes home that is no named profile (or when Hermes cannot say
   which profile it is) are the commands the plain `hermes valun ...`.
+- `hermes valun join` and `enroll` still store the signing key and agent token with `hermes config set`, but each value
+  now reaches that child Python through its environment, never its command line, which other users of the machine may
+  read (in 0.3.0 the key and token were arguments, visible in `/proc/<pid>/cmdline` on Linux while the child ran).
 
-### Checked locally (2026-11-09)
+### Checked locally (2026-11-09; unit tests, vectors and validate re-run 2026-11-10)
 
-- Unit tests (`python -m unittest discover -s tests`): 140 tests, OK with 1 skipped on Python 3.14.7 (the test that
-  needs Hermes), OK with none skipped in the Hermes venv.
+- Unit tests (`python -m unittest discover -s tests`): 145 tests, OK with 2 skipped on Python 3.14.7 (the tests that
+  need Hermes), OK with none skipped in the Hermes venv.
 - valun-open `spec/vectors/check_python.py --client plugin --require circulation/1`: 1386 checks, 1188 agree,
   0 disagreements in failing tiers, 17 informative differences, 181 not applicable; `scripts/check_plugin_core.py`:
   unchanged (8 files).
-- `hermes plugins validate --install-deps` on an empty Hermes home: validation passed (at `2b78a06`, the last code
-  commit; this changelog changes no code).
+- `hermes plugins validate --install-deps` on an empty Hermes home: validation passed (at `2b78a06`). After the audit
+  fixes, `hermes plugins validate` without `--install-deps` (no network) on a fresh Hermes home: validation passed,
+  security scan safe.
 
 ## 0.3.0
 

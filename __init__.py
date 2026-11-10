@@ -147,18 +147,30 @@ class _MemoryStore:
         self._secret, self._token = secret_hex, token
 
 
+# The child Python that runs `hermes config set KEY VALUE` exactly as `python -m hermes_cli.main` would, but takes VALUE
+# from its environment: a process's command line is readable by every local user (Linux /proc/<pid>/cmdline without
+# hidepid), its environment only by the same user and root. The child removes VALUE from its environment before Hermes
+# starts, and setting sys.argv inside it never changes the command line the system shows.
+CONFIG_VALUE_ENV = 'VALUN_PLUGIN_CONFIG_VALUE'
+_CONFIG_SET_CHILD = ('import os, runpy, sys; '
+                     f'value = os.environ.pop({CONFIG_VALUE_ENV!r}); '
+                     "sys.argv = ['hermes', 'config', 'set', sys.argv[1], value]; "
+                     "runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)")
+
+
 def _hermes_config_set(key, value):
-    # Hermes's documented route for storing a secret (`hermes config set`), run as an argument list: the value never
-    # passes through a shell or its history and is never printed. The active profile home is pinned explicitly, so a
-    # secret always lands in the profile this command was run for.
+    # Hermes's documented route for storing a secret (`hermes config set`), with no shell: the value never passes
+    # through a shell, its history or any command line (it reaches the child through the child's environment,
+    # _CONFIG_SET_CHILD) and is never printed. The active profile home is pinned explicitly, so a secret always lands in
+    # the profile this command was run for.
     env = dict(os.environ)
     try:
         from hermes_constants import get_hermes_home
         env['HERMES_HOME'] = str(get_hermes_home())
     except Exception:  # noqa: BLE001 - fall back to the inherited environment
         pass
-    r = subprocess.run([sys.executable, '-m', 'hermes_cli.main', 'config', 'set', key, value],
-                       capture_output=True, text=True, env=env)
+    env[CONFIG_VALUE_ENV] = value
+    r = subprocess.run([sys.executable, '-c', _CONFIG_SET_CHILD, key], capture_output=True, text=True, env=env)
     return r.returncode == 0
 
 
