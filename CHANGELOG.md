@@ -62,19 +62,26 @@ With circulation off on the server, the plugin makes the requests 0.3.0 made, pl
   applied because the payee's edge on the tracker does not show the transfer (409 `payee_edge_not_applied`), the
   command says why and the two ways on (resolve it as not applied once the payee confirms it did not arrive, with this
   profile's exact command, or ask the operator); nothing is changed, and no resolution in the client's records only is
-  offered.
+  offered. Printed commands quote the attempt (`'#1'`: unquoted, a shell reads `#1 ...` as a comment). For a transfer
+  the server reads as inconsistent (one edge applied, the other not), the command says before it asks that this is the
+  operator's case, and offers no `--not-applied` command: resolving it as not applied could pay the deal twice.
 
-### Checked locally (2026-11-09; unit tests, vectors and validate re-run 2026-11-10)
+### Checked locally (2026-11-09; re-run 2026-11-10 at `11e7be5`)
 
-- Unit tests (`python -m unittest discover -s tests`): 146 tests, OK with 2 skipped on Python 3.14.7 (the tests that
+- Unit tests (`python -m unittest discover -s tests`): 148 tests, OK with 2 skipped on Python 3.14.7 (the tests that
   need Hermes), OK with none skipped in the Hermes venv.
-- valun-open (`2b3b0fc`) `spec/vectors/check_python.py --client plugin --require circulation/1`: 1389 checks, 1191
-  agree, 0 disagreements in failing tiers, 17 informative differences, 181 not applicable (the core copied before the
-  audit disagrees on 2: payer/same-prior-retry-at-another-timestamp and bound/payment-attempt);
-  `scripts/check_plugin_core.py`: unchanged (8 files).
+- valun-open (`2b4695a`, vectors regenerated from the server's final code) `spec/vectors/check_python.py --client
+  plugin --require circulation/1`: 1389 checks, 1191 agree, 0 disagreements in failing tiers, 17 informative
+  differences, 181 not applicable (the core copied before the audit disagrees on 2:
+  payer/same-prior-retry-at-another-timestamp and bound/payment-attempt); `scripts/check_plugin_core.py`: unchanged (8
+  files).
 - `hermes plugins validate --install-deps` on an empty Hermes home: validation passed (at `2b78a06`). After the audit
-  fixes, and again after the core was copied from `2b3b0fc`, `hermes plugins validate` without `--install-deps` (no
-  network) on a fresh Hermes home: validation passed, security scan safe.
+  fixes, after the core was copied from `2b3b0fc`, and again at `11e7be5`, `hermes plugins validate` without
+  `--install-deps` (no network) on a fresh Hermes home: validation passed, security scan safe.
+- At `11e7be5`, against a local server release v16 with tracker v3.1 (loopback only): the five-step sandbox tour
+  through Hermes's plugin context to "The tour is complete" (none blocked; both set-offs signed during `valun_status`),
+  and the valun-app e2e script's Hermes dispatch run (Hermes's own approval gate: an approved commitment runs, a
+  declined one signs nothing): PASS.
 
 ## 0.3.0
 
