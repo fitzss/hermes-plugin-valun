@@ -3,7 +3,8 @@
 ## 0.4.0 "circulating credit" (unreleased draft)
 
 **Not released.** Built and tested locally only: this version is not pushed, the Hermes plugin catalog still pins
-0.3.0 (`5d01fbd`), and the server release it is built for (Valun release v16, circulating credit) is not deployed.
+0.3.0 (`5d01fbd`), and the server release it is built for (Valun release v16, circulating credit, on tracker v3.2) is
+not deployed.
 With circulation off on the server, the plugin makes the requests 0.3.0 made, plus a few reads of `GET /info`
 (valun-open `spec/PROTOCOL.md` Appendix H).
 
@@ -15,6 +16,21 @@ With circulation off on the server, the plugin makes the requests 0.3.0 made, pl
   by transfer at a new timestamp waits until the earlier attempt is dead (only the identical operation is signed
   again), no bound note restores a live bound note's prior, a payer consent is signed only within a recorded attempt's
   window, and a refused resolution as applied says why (below).
+  Copied again for tracker v3.2, from valun-open `836750a` (with `2aa318a`; agent, basis, client and novation
+  changed):
+  - Prior acknowledgments: the prior slot of a bound note, of a payment by transfer (`A>B:prior`) and of payer and
+    payee consents is signed over the 105-byte PA(I,R,X,p,T) (`basis/prior-ack/1`: the edge's total X and its note's
+    timestamp p, 0 and 0 for a new edge), no longer over the 80-byte note message; the requests add the prior
+    timestamps (`from_prior_timestamp`, `to_prior_timestamp`; a bound note's `prior_timestamp`).
+  - The same-prior retry exemption: a payment by transfer retried at a new timestamp is signed when it acknowledges
+    the same state of the held note (total and timestamp) as the earlier attempt (on tracker v3.2 at most one of the
+    two can apply: audit VS-1 closed); one on another state still waits for the earlier attempt's window.
+  - The contract gate (fail closed): all of these are signed only when `GET /info` `novation` reports exactly tracker
+    v3.2 (`tracker_build` `valun-circulating-credit/4`, `transfer_version` 4, `bound_note_version` 3, `prior_ack`
+    `basis/prior-ack/1`). Otherwise a bound note or a payment with a held note is refused with `feature_unavailable`
+    before anything is asked for or signed (no ordinary note instead), and payer and payee consents wait, neither
+    signed nor refused (so, on such a server, payments to you by transfer are not signed before `valun_status` and
+    `valun_inbox` either). Set-offs and transfers of your own debt are not gated.
 - Circulating credit through the core: bound credit notes, paying with a note you hold
   (`valun_review_delivery` `pay_with`), consents to set-offs and transfers, one live payment attempt per deal, and the
   new fields of `valun_status`, `valun_deal` and `valun_inbox`. Still nine tools.
@@ -66,22 +82,28 @@ With circulation off on the server, the plugin makes the requests 0.3.0 made, pl
   the server reads as inconsistent (one edge applied, the other not), the command says before it asks that this is the
   operator's case, and offers no `--not-applied` command: resolving it as not applied could pay the deal twice.
 
-### Checked locally (2026-11-09; re-run 2026-11-10 at `11e7be5`)
+### Checked locally (2026-11-09; re-run 2026-11-10 at `11e7be5`, and with the core of `836750a` at `ecbe0bc`)
 
-- Unit tests (`python -m unittest discover -s tests`): 148 tests, OK with 2 skipped on Python 3.14.7 (the tests that
-  need Hermes), OK with none skipped in the Hermes venv.
-- valun-open (`2b4695a`, vectors regenerated from the server's final code) `spec/vectors/check_python.py --client
-  plugin --require circulation/1`: 1389 checks, 1191 agree, 0 disagreements in failing tiers, 17 informative
-  differences, 181 not applicable (the core copied before the audit disagrees on 2:
-  payer/same-prior-retry-at-another-timestamp and bound/payment-attempt); `scripts/check_plugin_core.py`: unchanged (8
-  files).
+- Unit tests (`python -m unittest discover -s tests`): 150 tests, OK with 2 skipped on Python 3.14.7 (the tests that
+  need Hermes), OK with none skipped in the Hermes venv (148 at `11e7be5`; the 2 new ones: a payment to you by
+  transfer waits during `valun_status` on a server without the tracker v3.2 contract, and goes past the gate with it).
+- `scripts/check_plugin_core.py` (valun-open `836750a`): unchanged (8 files).
+- `spec/vectors/check_python.py --client plugin --require circulation/1` with the committed vectors (valun-open
+  `f4017c4`, regenerated from valun-app `fa38334`: tracker v3.1): 1389 checks, 1177 agree, 14 disagreements in failing
+  tiers, 17 informative differences, 181 not applicable. The 14 are this core against tracker v3.1 vectors (their `GET
+  /info` has no `novation` object, so 8 transcript replays, steps 168 to 222, and 6 circulation.json decisions stop at
+  the contract gate, `feature_unavailable`); `--client package` at `836750a` gives the same counts and the same lines. Without
+  `--require`: 1387 checks, 1104 agree, 0 disagreements, 17 informative, 266 not applicable (both clients). To be
+  re-run once the vectors are regenerated from the tracker v3.2 server. (With the core of `2b3b0fc`, at `11e7be5` and
+  against these vectors: 1191 agree, 0 disagreements.)
 - `hermes plugins validate --install-deps` on an empty Hermes home: validation passed (at `2b78a06`). After the audit
-  fixes, after the core was copied from `2b3b0fc`, and again at `11e7be5`, `hermes plugins validate` without
-  `--install-deps` (no network) on a fresh Hermes home: validation passed, security scan safe.
-- At `11e7be5`, against a local server release v16 with tracker v3.1 (loopback only): the five-step sandbox tour
-  through Hermes's plugin context to "The tour is complete" (none blocked; both set-offs signed during `valun_status`),
-  and the valun-app e2e script's Hermes dispatch run (Hermes's own approval gate: an approved commitment runs, a
-  declined one signs nothing): PASS.
+  fixes, after the core was copied from `2b3b0fc`, at `11e7be5`, and again at `ecbe0bc`, `hermes plugins validate`
+  without `--install-deps` (no network) on a fresh Hermes home: validation passed (15 checks), security scan safe.
+- At `11e7be5`, with the core of `2b3b0fc`, against a local server release v16 with tracker v3.1 (loopback only): the
+  five-step sandbox tour through Hermes's plugin context to "The tour is complete" (none blocked; both set-offs signed
+  during `valun_status`), and the valun-app e2e script's Hermes dispatch run (Hermes's own approval gate: an approved
+  commitment runs, a declined one signs nothing): PASS. Not re-run with the core of `836750a`, which needs a server on
+  tracker v3.2 to pay with a held note.
 
 ## 0.3.0
 
