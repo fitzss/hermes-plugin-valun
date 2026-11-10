@@ -2,7 +2,8 @@
 consents (set-offs; payments to it by transfer) before valun_status and valun_inbox too, at most once a minute, and
 says so (consents_signed_now), so the sandbox tour no longer stalls at its set-off waits; with process_consents off, or
 every consent role off, its next request withdraws the consent roles it declared before (X-Valun-Features
-'consents/1;roles='), once. Also: results name this profile's Hermes commands where the core names its CLI's; inside
+'consents/1;roles='), once. Tracker v3.2: a payment to it by transfer (a prior acknowledgment) is signed only when GET
+/info reports the tracker v3.2 contract; otherwise it waits (feature_unavailable). Also: results name this profile's Hermes commands where the core names its CLI's; inside
 Hermes without its plugin storage the records are unreadable (never memory-only); the consents.max_PC setting.
 
 Offline: every request goes through the real Client.request and urllib into a fake v16 server (Wire) with its tracker
@@ -57,6 +58,12 @@ MANDATE = {'objective': 'Self-serve sandbox', 'may_issue_credit': True, 'may_acc
            'accept_notes_from': [X_ID], 'refuse_notes_from': [], 'pay_with_held_notes': 'when_asked'}
 SANDBOX = {'consents.setoff': True, 'consents.as_issuer': True, 'consents.as_new_creditor': True}
 SET_OFF_WAIT = 'A set-off of the cycle is due'
+# GET /info novation of a v16 server on tracker v3.2: the novation constants and the tracker contract the core signs
+# prior acknowledgments for (design v3.2 section 5; valun-open novation.CONTRACT).
+INFO_NOVATION = {'transfer_ms': 999, 'setoff_ms': 998, 'bound_note_ms': 997, 'reserved_ms': [995, 996, 997, 998, 999],
+                 'max_age_ms': 3600000, 'transfer_ttl_ms': 1200000, 'setoff_ttl_ms': 1800000, 'fallback_margin_ms': 60000,
+                 'tracker_build': 'valun-circulating-credit/4', 'transfer_version': 4, 'bound_note_version': 3,
+                 'prior_ack': 'basis/prior-ack/1'}
 PUBLIC = ('/pilot/v1/info', '/pilot/v1/participants', '/pilot/v1/ledger', '/pilot/v1/clearing', '/pilot/v1/join',
           '/pilot/v1/join-sandbox', '/pilot/v1/enroll')
 
@@ -86,10 +93,12 @@ class Wire:
     """A fake v16 server for one sandbox participant S (this client) and sandbox-exact X: GET /info, /me, /inbox,
     /consents; POST /consents/{id} (checks S's signatures over the new states, then applies them) and /refuse. It takes
     S's consent roles as v16 does: from an agent request it authenticated (agent token, a route that is not public) and
-    answered with 2xx; 'consents/1;roles=' withdraws them at once; a request without the header leaves them."""
+    answered with 2xx; 'consents/1;roles=' withdraws them at once; a request without the header leaves them. Its GET
+    /info reports `novation` (tracker v3.2, INFO_NOVATION; None: no novation object, as a server before tracker v3.2)."""
 
-    def __init__(self, features=('bound_notes/1', 'circulation/1')):
+    def __init__(self, features=('bound_notes/1', 'circulation/1'), novation=INFO_NOVATION):
         self.features = list(features)
+        self.novation = copy.deepcopy(novation)
         self.tracker = {}                   # 'I>R' -> {total, timestamp, signature}
         self.items = {}
         self.log = []                       # (method, route, X-Valun-Features)
@@ -143,6 +152,18 @@ class Wire:
                            'summary': {'your_net_change_PC': 0, 'your_total_owed_change_PC': 0}}
         return tid
 
+    def payee_item(self):
+        """A consent in S's payee role (a payment to S by transfer, X's note moving to S): value-safe, so a read run
+        handles it; it signs a prior acknowledgment, so only for the tracker v3.2 contract. The Wire serves no deal, so
+        past the contract gate it waits because its deal cannot be read."""
+        tid = 'vt_' + 'f' * 16
+        self.items[tid] = {'kind': 'transfer', 'id': tid, 'state': 'collecting', 'your_roles': ['payee'],
+                           'created_at': iso(now_ms()), 'expires_at': iso(now_ms() + 1_200_000), 'network': vc.NETWORK,
+                           'tracker_nft_id': NFT, 'denomination': DENOM, 'edges': [],
+                           'context': {'amount': 1, 'deal': {'deal_id': 'vd_' + 'f' * 16}},
+                           'summary': {'your_net_change_PC': 1, 'your_total_owed_change_PC': 0}}
+        return tid
+
     def position(self):
         hold, owe = self.total(X_PK, S_PK), self.total(S_PK, X_PK)
         waiting = sum(1 for it in self.items.values() if it['state'] == 'collecting')
@@ -156,8 +177,9 @@ class Wire:
         if token != AGENT_TOKEN and route not in PUBLIC:
             raise vc.ValunError('unauthorized', 'no agent token', 401)
         if (method, route) == ('GET', '/pilot/v1/info'):
-            return {'network': vc.NETWORK, 'unit': 'PC', 'tracker_nft_id': NFT, 'denomination': DENOM,
-                    'features': list(self.features)}
+            return dict({'network': vc.NETWORK, 'unit': 'PC', 'tracker_nft_id': NFT, 'denomination': DENOM,
+                         'features': list(self.features)},
+                        **({'novation': copy.deepcopy(self.novation)} if self.novation is not None else {}))
         if (method, route) == ('GET', '/pilot/v1/me'):
             return {'participant': {'id': S_ID, 'handle': 'stranger', 'status': 'active', 'sandbox_only': True},
                     'mandate': dict(MANDATE), 'effective_limits': dict(MANDATE), 'mandate_version': 1,
@@ -314,6 +336,38 @@ class ConsentsOnReads(Base):
         self.assertEqual(self.wire.items[tid]['state'], 'collecting')
         self.assertEqual([x for x in self.wire.log if tid in x[1]], [], 'not posted, not refused')
         self.assertNotIn(tid, json.dumps(self.records().get('consent_log')))
+
+    def test_a_payment_to_you_waits_without_the_tracker_v32_contract(self):
+        """Tracker v3.2 (fail closed): a payee consent signs a prior acknowledgment, so on a server whose GET /info
+        reports no tracker v3.2 contract a read run leaves it waiting (feature_unavailable): not signed, not refused,
+        its deal not read. The set-off of the same run is no prior acknowledgment and is still signed."""
+        v31 = dict(INFO_NOVATION, tracker_build='valun-circulating-credit/3', transfer_version=3, bound_note_version=2)
+        for novation in (None, v31, dict(INFO_NOVATION, transfer_version='4')):
+            with self.subTest(novation=novation):
+                self.wire.novation = novation                   # a fresh world and fresh records for each server
+                self.wire.items.clear(), self.wire.tracker.clear(), self.wire.log.clear()
+                shutil.rmtree(self.dir, ignore_errors=True)
+                os.makedirs(self.dir)
+                sid, pid = self.wire.cycle(), self.wire.payee_item()
+                out = self.call(Ctx(process_consents=True, **SANDBOX), 'valun_status')
+                self.assertEqual([e['id'] for e in out['consents_signed_now']], [sid])
+                self.assertEqual(self.wire.items[pid]['state'], 'collecting')
+                self.assertEqual([x for x in self.wire.log if pid in x[1] or x[1].startswith('/pilot/v1/deals/')], [],
+                                 'not posted, not refused, its deal not read')
+                logged = [e for e in self.records()['consent_log'] if e['id'] == pid]
+                self.assertEqual([(e['decision'], e['code'], e['role']) for e in logged],
+                                 [('waiting', 'feature_unavailable', 'payee')])
+
+    def test_with_the_contract_a_payment_to_you_goes_past_the_gate(self):
+        """The same item on a tracker v3.2 server: the client reads its deal (here it cannot, so it waits for a later
+        run with that code, not feature_unavailable)."""
+        pid = self.wire.payee_item()
+        self.call(Ctx(process_consents=True, **SANDBOX), 'valun_status')
+        self.assertEqual(self.wire.asked('GET', '/pilot/v1/deals/vd_' + 'f' * 16)[:1],
+                         [('GET', '/pilot/v1/deals/vd_' + 'f' * 16, 'consents/1;roles=setoff,issuer,creditor')])
+        self.assertEqual(self.wire.items[pid]['state'], 'collecting')
+        logged = [e for e in self.records()['consent_log'] if e['id'] == pid]
+        self.assertEqual([(e['decision'], e['code']) for e in logged], [('waiting', 'not_found')])
 
     def test_a_consent_above_the_cap_is_not_signed_from_a_read(self):
         ctx = Ctx(process_consents=True, **dict(SANDBOX, **{'consents.max_PC': 0}))

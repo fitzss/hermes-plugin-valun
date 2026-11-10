@@ -33,6 +33,12 @@ PID, OWNER, SERVER = 'vp_aaaaaaaaaaaa', 'owner-token-throwaway', 'http://127.0.0
 PINS = {'tracker_nft_id': '42' * 32, 'denomination': 'token:' + 'ab' * 32}
 MANDATE = {'max_issue_per_deal': 5, 'max_accept_per_deal': 4, 'max_issue_outstanding': 40, 'auto_clear': True,
            'novate_own_debt': True, 'accept_transfers': True}
+# GET /info novation of a v16 server on tracker v3.2 (circulation on): the novation constants and the tracker contract
+# the core signs prior acknowledgments for (design v3.2 section 5; valun-open novation.CONTRACT).
+INFO_NOVATION = {'transfer_ms': 999, 'setoff_ms': 998, 'bound_note_ms': 997, 'reserved_ms': [995, 996, 997, 998, 999],
+                 'max_age_ms': 3600000, 'transfer_ttl_ms': 1200000, 'setoff_ttl_ms': 1800000, 'fallback_margin_ms': 60000,
+                 'tracker_build': 'valun-circulating-credit/4', 'transfer_version': 4, 'bound_note_version': 3,
+                 'prior_ack': 'basis/prior-ack/1'}
 
 
 class Ctx:
@@ -121,7 +127,8 @@ def join_routes(test, owner=None, put=None, enroll=None, sandbox=True):
     return {('POST', '/pilot/v1/join-sandbox' if sandbox else '/pilot/v1/join'): joined,
             ('POST', '/pilot/v1/enroll'): enroll or {'network': 'valun-pilot-1', 'agent_token': 'agent-token-throwaway'},
             ('GET', '/pilot/v1/me'): {'participant': {'id': PID, 'handle': 's1'}},
-            ('GET', '/pilot/v1/info'): dict(PINS, network='valun-pilot-1', unit='PC', features=['bound_notes/1', 'circulation/1']),
+            ('GET', '/pilot/v1/info'): dict(PINS, network='valun-pilot-1', unit='PC', features=['bound_notes/1', 'circulation/1'],
+                                            novation=dict(INFO_NOVATION)),
             ('GET', '/pilot/v1/owner'): owner or {'participant': {'id': PID}, 'mandate': dict(MANDATE)},
             ('PUT', '/pilot/v1/owner/mandate'): put or {'mandate': dict(MANDATE)}}
 
@@ -403,7 +410,9 @@ class Joined(Base):
                 'context': {'amount': 1}, 'summary': {'your_net_change_PC': 0}, 'expires_at': '2026-11-09T01:00:00.000Z'}
         odd = {'kind': 'setoff\nPAY 99', 'id': 'vs_1\nFAKE LINE', 'state': 'collecting', 'your_roles': ['member', 'owner\n'],
                'context': {'amount': '1\nx'}, 'expires_at': 'soon\nx'}
-        return {('GET', '/pilot/v1/info'): dict(PINS, network='valun-pilot-1', unit='PC', features=list(features)),
+        info = dict(PINS, network='valun-pilot-1', unit='PC', features=list(features),
+                    **({'novation': dict(INFO_NOVATION)} if features else {}))      # circulation off: no novation object
+        return {('GET', '/pilot/v1/info'): info,
                 ('GET', '/pilot/v1/me'): {'participant': {'id': PID}, 'effective_limits': dict(MANDATE)},
                 ('GET', '/pilot/v1/consents'): {'consents': [good, odd, {'kind': 'transfer', 'id': 'vt_0000000000000001', 'state': 'applied'}]}}
 
@@ -504,7 +513,8 @@ class Joined(Base):
         with open(token_file, 'w', encoding='utf-8') as f:
             f.write(OWNER + '\n')
         route = ('POST', f'/pilot/v1/owner/deals/{deal}/attempts/{sid}/resolve')
-        server = Server({('GET', '/pilot/v1/info'): dict(PINS, network='valun-pilot-1', unit='PC', features=['circulation/1']),
+        server = Server({('GET', '/pilot/v1/info'): dict(PINS, network='valun-pilot-1', unit='PC', features=['circulation/1'],
+                                                         novation=dict(INFO_NOVATION)),
                          route: vc.ValunError('payee_edge_not_applied', "the payee's edge does not show it\x1b[2J", 409,
                                               {'payee_edge': 'moved_past'})})
         with mock.patch.object(vc.Client, 'resolution_plan', return_value=plan), \
@@ -543,7 +553,8 @@ class Joined(Base):
         with open(token_file, 'w', encoding='utf-8') as f:
             f.write(OWNER + '\n')
         route = ('POST', f'/pilot/v1/owner/deals/{deal}/attempts/{sid}/resolve')
-        server = Server({('GET', '/pilot/v1/info'): dict(PINS, network='valun-pilot-1', unit='PC', features=['circulation/1']),
+        server = Server({('GET', '/pilot/v1/info'): dict(PINS, network='valun-pilot-1', unit='PC', features=['circulation/1'],
+                                                         novation=dict(INFO_NOVATION)),
                          route: vc.ValunError('payee_edge_not_applied', "the payee's edge does not show it", 409,
                                               {'payee_edge': 'moved_past'})})
         with mock.patch.object(vc.Client, 'resolution_plan', return_value=plan), \
