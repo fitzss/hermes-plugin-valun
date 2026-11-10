@@ -44,8 +44,9 @@ With circulation off on the server, the plugin makes the requests 0.3.0 made, pl
 - Records live in `plugin-data/valun/valun-records.json` (started from 0.3's `issued-notes.json`), changed under a lock
   file; when the file exists but cannot be read, nothing is signed.
 - `hermes valun join` hands the owner token to the owner before any local write that can fail (decision D-3 c).
-- Every command the plugin prints names its Hermes profile (`hermes -p <profile> ...`), a profile really named
-  `custom` included.
+- Every command the plugin prints names its Hermes profile (`hermes -p <profile> ...`), the default profile and a
+  profile really named `custom` included; only in a Hermes home that is no named profile (or when Hermes cannot say
+  which profile it is) are the commands the plain `hermes valun ...`.
 
 ### Checked locally (2026-11-09)
 
