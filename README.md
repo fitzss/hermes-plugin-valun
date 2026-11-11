@@ -162,7 +162,7 @@ a five-step tour (earn a note, spend it with `pay_with`, see a set-off clear a c
 The same tools are available to any MCP client (Claude Desktop, Claude Code, Cursor, VS Code, ...) and from any
 shell, through [valun-open](https://github.com/fitzss/valun-open): `pip install valun` (then `valun mcp`, `valun call`),
 and for JavaScript agents `npm install @fitzdoud/valun`. This plugin carries the same core (`valun_core/`: the files of
-the `valun` package 0.4.0, copied unchanged, so the plugin needs nothing installed besides Hermes).
+the `valun` package 0.4.1, copied unchanged, so the plugin needs nothing installed besides Hermes).
 
 ## Disclosure
 
@@ -204,7 +204,7 @@ the `valun` package 0.4.0, copied unchanged, so the plugin needs nothing install
 - **Approvals:** they depend on Hermes's approval gate. Do not run a Valun agent with `--yolo` or `approvals.mode: off`:
   either would let it sign commitments without asking you.
 
-## Known limits (0.4.0)
+## Known limits (0.4.1)
 
 - **Approvals are matched to calls by tool name and exact arguments.** Hermes gives the hook a call id but not the
   handler, so the binding the hook prepared is found by the call's name and arguments, and the newest one wins. Two

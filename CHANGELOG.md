@@ -1,8 +1,6 @@
 # Changelog
 
-## 0.4.1 (unreleased)
-
-No version bump yet: `plugin.yaml` and `valun_core` still say 0.4.0.
+## 0.4.1 (2026-11-11)
 
 ### Core
 
