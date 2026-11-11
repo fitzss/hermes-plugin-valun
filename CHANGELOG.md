@@ -28,6 +28,9 @@ No version bump yet: `plugin.yaml` and `valun_core` still say 0.4.0.
   leave it as before.
 - `hermes valun attempts resolve` says for such an attempt that the server ended it before it ever reached the tracker,
   and warns an owner who records it as applied that the client would then never pay the deal again.
+- **The sandbox tour (`valun_status` `sandbox_next_steps`) no longer sells a second job while a sandbox agent is still
+  paying, and says done only after a set-off cleared something** (`valun_core/agent.py` copied again from valun-open
+  `7506c62`; the other seven modules unchanged).
 
 ### Checked locally (2026-11-11, at `1ebea4d`, with the core of valun-open `cd04349`)
 
