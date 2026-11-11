@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.4.1 (unreleased)
+
+No version bump yet: `plugin.yaml` and `valun_core` still say 0.4.0.
+
+### Core
+
+- `valun_core/` copied again from valun-open `cd04349` (the `valun` package's fix `c2e0847`, 0.4.1 unreleased; agent
+  and client changed, the other six modules were already identical): `NEVER_APPLIED_TRANSFER`, the transfer states the
+  server sets only before it ever submits a transfer to the tracker (`void_rejected`, `void_stale`, `void_expired`,
+  `expired`, `cancelled`, `refused`, `void_key_revoked`); `Client.attempts_overview()`, the rows of
+  `payment_attempts()` with `ended_at_server`, read from `GET /transfers/{id}` only for a transfer attempt the records
+  classify as one that may have applied and whose server id they hold, which the server must show as that attempt;
+  the rows of `resolution_plan()` carry it too. The text for `attempt_outcome_unknown` says that
+  `hermes valun attempts list` also says when the Valun server ended an attempt before it reached the tracker. Display
+  only: what is signed, and when, is unchanged (R11 and the same-prior exemption).
+
+### Fixed
+
+- **`hermes valun attempts list` no longer says "MAY HAVE APPLIED" for an attempt the server ended before it reached
+  the tracker** (valun-app readiness R-22), as the core CLI's `valun attempts list`. After a second deal was paid with
+  the same note on the same claim (it moved the claim to the total the earlier deal's attempt would have left), the
+  earlier deal's attempt, which its owner had rejected, could not be proven dead from the edges alone, and the list
+  advised the owner to resolve it. It is now shown as ended by the server (its state, and why, in words), with no
+  resolution advised (for a deal recorded as paid: nothing to resolve). `failed` (which can follow a tracker call),
+  `resolved_not_applied`, `outcome_unknown`, `inconsistent`, a view that is not this attempt, or a read that fails,
+  leave it as before.
+- `hermes valun attempts resolve` says for such an attempt that the server ended it before it ever reached the tracker,
+  and warns an owner who records it as applied that the client would then never pay the deal again.
+
+### Checked locally (2026-11-11, at `1ebea4d`, with the core of valun-open `cd04349`)
+
+- Unit tests (`python -B -m unittest discover -s tests`): 155 tests, OK with 2 skipped on Python 3.14.7 and OK with
+  none skipped in the Hermes venv (Python 3.14.7); the 5 new ones (`tests/test_attempts_041.py`) fail without the
+  change to `hermes valun attempts`. Two tests follow the new core texts (`25d54fe`); with the new core and those two
+  unchanged, 150 tests, 2 failures (those two).
+- `scripts/check_plugin_core.py` (valun-open `cd04349`): unchanged (8 files).
+- `spec/vectors/check_python.py --client plugin --require circulation/1` (the vectors of `95d23c4`, from valun-app
+  `b7ecca0`): 1461 checks, 1260 agree, 0 disagreements in failing tiers, 17 informative differences, 184 not
+  applicable, the same lines as `--client package` at `cd04349` apart from the header naming the client.
+- `hermes plugins validate` (no `--install-deps`, no network) on a fresh Hermes home: validation passed (15 checks),
+  security scan safe.
+
 ## 0.4.0 "circulating credit" (2026-11-10)
 
 For Valun release v16 (circulating credit) on tracker v3.2. The catalog entry moves from 0.3.0 (`5d01fbd`) to this
