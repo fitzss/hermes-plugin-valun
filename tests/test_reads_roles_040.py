@@ -445,8 +445,9 @@ class RolesWithdrawn(Base):
         self.assertIsNone(self.wire.roles)
 
 
-# The core-CLI commands the vendored core names only in its docstrings (never in a text for the agent or the owner).
-DOCSTRING_ONLY = ('`valun call`', '`valun config approvals`', '`valun sandbox seller`')
+# The core-CLI commands the vendored core names only in its docstrings and comments (never in a text for the agent or
+# the owner): `valun attempts` in a comment of client.py on NEVER_APPLIED_TRANSFER (valun-open c2e0847).
+DOCSTRING_ONLY = ('`valun attempts`', '`valun call`', '`valun config approvals`', '`valun sandbox seller`')
 
 
 class HermesCommands(Base):
@@ -468,8 +469,8 @@ class HermesCommands(Base):
     def test_core_error_texts_name_this_profiles_commands(self):
         ctx = Ctx()
         out = tools.hermes_result(ctx, va.error_payload(vc.ValunError('attempt_outcome_unknown', 'may have applied')))
-        self.assertIn('`hermes -p valun-test valun attempts list`, then `hermes -p valun-test valun attempts resolve`',
-                      out['what_this_means'])
+        self.assertIn('`hermes -p valun-test valun attempts list`, which also says when the Valun server ended an attempt '
+                      'before it reached the tracker, then `hermes -p valun-test valun attempts resolve`', out['what_this_means'])
         out = tools.hermes_result(ctx, va.error_payload(vc.ValunError('not_connected', 'not enrolled'), 'run `valun join` '
                                                                                                           '(or `valun enroll`) in a terminal'))
         self.assertIn('`hermes -p valun-test valun join` (or `hermes -p valun-test valun enroll`)', out['what_this_means'])
