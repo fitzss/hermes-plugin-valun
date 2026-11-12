@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.1 (2026-11-12)
+
+### Core
+
+- `valun_core/` copied again from valun-open: the `valun` package 0.5.1. Its signing firewall's refusals name the
+  network's unit (nanoERG on the testnet; the client passes it in the evaluation context). `agent`, `client` and
+  `novation` changed; on the pilot every text is as in 0.5.0.
+
 ## 0.5.0 (2026-11-12)
 
 ### Added
