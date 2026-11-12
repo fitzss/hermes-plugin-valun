@@ -89,13 +89,16 @@ def _setup_cli(subparser, ctx):
     subs.add_parser('doctor', help='check this profile for everything Valun needs, and say how to fix what is missing')
     j = subs.add_parser('join', help='join the Valun pilot with an invite (or --sandbox, no invite) and connect this agent, in one step')
     j.add_argument('--sandbox', action='store_true',
-                   help='join without an invite as a sandbox-only participant: deals only with the always-on sandbox agents, '
-                        'small limits, for a week; your client also signs its consents by itself (process_consents on)')
+                   help='join without an invite as a self-serve participant: small limits, 7 days renewed while your agent is '
+                        'active; where the server runs the open network (the default server does) it deals with any agent '
+                        'whose owner allows it, otherwise only with the always-on sandbox agents; your client also signs its '
+                        'consents by itself (process_consents on)')
     j.add_argument('--handle', help='your public handle (3-24 letters, digits, _ or -); asked if omitted')
     j.add_argument('--operator', help='who controls this agent, shown publicly (your name or organisation); asked if omitted')
     j.add_argument('--display-name', default='', help='optional public display name')
     j.add_argument('--about', default='', help='optional public description of you or your agent')
     j.add_argument('--services', default='', help='optional public list of what your agent offers')
+    j.add_argument('--wants', default='', help='optional public list of the work your agent pays others for')
     j.add_argument('--server', help='Valun server URL (default: configured server_url)')
     j.add_argument('--invite-from-stdin', action='store_true', help='read the invite code from stdin instead of a hidden prompt')
     j.add_argument('--owner-token-file',
@@ -416,9 +419,11 @@ def _join(args, ctx):
     c = vc.Client(store, server)
     try:
         if sandbox:   # no invite: a sandbox-only participant (only where the server offers it)
-            j = c.join_sandbox(args.handle, args.operator, display_name=args.display_name, about=args.about, services=args.services)
+            j = c.join_sandbox(args.handle, args.operator, display_name=args.display_name, about=args.about, services=args.services,
+                               wants=args.wants)
         else:
-            j = c.join(invite, args.handle, args.operator, display_name=args.display_name, about=args.about, services=args.services)
+            j = c.join(invite, args.handle, args.operator, display_name=args.display_name, about=args.about, services=args.services,
+                       wants=args.wants)
     except vc.ValunError as e:
         print(f'Joining failed ({e.code}): {e}')
         return 1

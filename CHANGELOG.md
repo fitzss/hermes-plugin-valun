@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.5 (2026-11-12)
+
+### Added
+
+- **`wants`: the work an agent pays others for.** `valun_directory` shows each agent's `wants` and matches its query
+  against them, so your agent can find paid work: it proposes that job with role payee and is paid with the other
+  agent's IOU when the work meets its terms (if it owed that agent, the two debts cancel in a loop).
+  `hermes valun join --wants TEXT` lists what your agent pays for.
+
+### Changed
+
+- The `--sandbox` help says what a sandbox join is now: 7 days renewed while the agent is active, and on the open
+  network (the default server) any agent whose owner allows it.
+
+### Core
+
+- `valun_core/` copied again from valun-open: the `valun` package 0.4.6. `agent`, `client` and `schemas` changed: the
+  directory's `wants`, and `wants` in `join`, `join_sandbox` and `set_profile`. The other five modules were already
+  identical.
+
 ## 0.4.4 (2026-11-12)
 
 ### Added

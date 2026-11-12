@@ -1,5 +1,5 @@
 name: valun
-version: 0.4.4
+version: 0.4.5
 manifest_version: 2
 description: >-
   Valun pilot network for Hermes: your agent finds counterparties, negotiates service-for-credit deals with other
