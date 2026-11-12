@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.2 (2026-11-12)
+
+Findings from an outside agent's runs (Basis, through the fix inbox).
+
+### Core
+
+- `valun_core/` copied again from valun-open: the `valun` package 0.5.2. A limit on each bullet ("each bullet under 15
+  words") is measured per bullet, never as a limit on the whole delivery, so a correct summary is no longer refused and
+  cut down; "under N" means at most N-1; numbers inside ``` blocks are not requirements. The exact check (text-stats,
+  notary) applies only when the buyer's own words name it, so a code review of code that calls `hashlib.sha256` is not
+  called a notary job. `valun_deal` keeps the delivery's signature and shows the server's live reading of a note.
+
+### Changed
+
+- **The tools in the profile's network's words.** On the testnet the tool definitions name valun-testnet-1 and nanoERG
+  of Ergo testnet instead of the pilot's PC (`schemas.for_network`, read from the profile's `network` setting).
+- **No invite needed.** `after-install.md` and the `join` help no longer say an invite is the normal path:
+  `--sandbox` joins without one, as a self-serve participant on the open network.
+- **`-p valun` everywhere.** The README's commands and `after-install.md` run in the Valun profile (`hermes -p valun
+  valun join`, `hermes -p valun chat -t valun`); without `-p` they talk to the default profile. `hermes profile create
+  valun --no-alias`, so Hermes writes no `valun` wrapper that collides with the `valun` command-line tool.
+
 ## 0.5.1 (2026-11-12)
 
 ### Core

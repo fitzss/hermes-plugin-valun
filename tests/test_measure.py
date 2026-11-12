@@ -14,10 +14,26 @@ class Requirements(unittest.TestCase):
         self.assertEqual(measure.requirements(TERMS), {'min_words': 300, 'max_words': 500, 'min_links': 3})
 
     def test_other_phrasings(self):
-        self.assertEqual(measure.requirements('markdown, under 400 words, at least 2 links'), {'max_words': 400, 'min_links': 2})
+        # 'under 400 words' means fewer than 400 (fix inbox #1; valun 0.5.2)
+        self.assertEqual(measure.requirements('markdown, under 400 words, at least 2 links'), {'max_words': 399, 'min_links': 2})
         self.assertEqual(measure.requirements('at least 150 words'), {'min_words': 150})
         self.assertEqual(measure.requirements('300\u2013500 words'), {'min_words': 300, 'max_words': 500})
         self.assertEqual(measure.requirements('a short note'), {})
+
+
+class PerItemLimits(unittest.TestCase):
+    """Fix inbox #1 (Basis's tests from its plugin patch, kept): a limit on each bullet is measured per bullet. Hermes had
+    cut a correct 3-bullet summary down to 15 words in all, because "each bullet under 15 words" was read as a total."""
+
+    def test_per_item_limits(self):
+        self.assertEqual(measure.requirements('exactly 3 bullets, each under 15 words, no other text'), {'max_words_per_item': 14})
+        self.assertEqual(measure.requirements('Each bullet must be at most 20 words.'), {'max_words_per_item': 20})
+        self.assertEqual(measure.requirements('3 bullets, 12 words each'), {'max_words_per_item': 12})
+        d = '- one two three four\n- five six seven'
+        c = measure.measure(d, '2 bullets, each under 5 words', check_hosts=False)['checks_against_agreed_terms']
+        self.assertEqual([x['met'] for x in c], [True])
+        c = measure.measure(d, '2 bullets, each under 4 words', check_hosts=False)['checks_against_agreed_terms']
+        self.assertEqual([x['met'] for x in c], [False])
 
 
 class Measure(unittest.TestCase):

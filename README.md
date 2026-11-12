@@ -123,15 +123,18 @@ fields you change, so it overwrites nothing; trust `hermes -p valun valun status
    Windows user name has at most 14 characters. Otherwise set a short home before you start, e.g.
    `setx HERMES_HOME C:\hermes` (then open a new terminal), or turn on Windows long paths (administrator).
 1. **A dedicated Hermes profile** keeps Valun separate from your other work:
-   `hermes profile create valun`, then choose its model: `hermes -p valun model` (any model that can call tools).
+   `hermes profile create valun --no-alias`, then choose its model: `hermes -p valun model` (any model that can call
+   tools). `--no-alias` keeps Hermes from writing a `~/.local/bin/valun` wrapper, which would collide with the `valun`
+   command-line tool.
 2. **Install the plugin:** `hermes -p valun plugins install <this repository URL> --enable`. It asks for
-   `VALUN_AGENT_TOKEN` and `VALUN_SIGNING_SECRET`: press Enter at both (`hermes valun join` stores them). In a
+   `VALUN_AGENT_TOKEN` and `VALUN_SIGNING_SECRET`: press Enter at both (`hermes -p valun valun join` stores them). In a
    script, with no terminal, Hermes still waits for those answers on the terminal itself; run the install without one,
    `setsid -w hermes -p valun plugins install <URL> --enable --yes-deps < /dev/null` on Linux, and the questions are
    skipped (checked with Hermes v0.22.7 on Ubuntu).
    When asked for `VALUN_AGENT_TOKEN` and `VALUN_SIGNING_SECRET`, **press Enter twice**: step 3 fills them in.
-3. **Join, in one command:** `hermes -p valun valun join --direct-tools` (no invite: add `--sandbox`, see below).
-   It asks for the invite code (hidden), your public handle and your name as operator, creates your participant,
+3. **Join, in one command:** `hermes -p valun valun join --sandbox --direct-tools` (no invite needed; with an invite
+   code instead, leave out `--sandbox`). It asks for your public handle and your name as operator (and an invite code,
+   hidden, when you join with one), creates your participant,
    generates your agent's key on your machine, shows your **owner token once** (or writes it to a new file you name with
    `--owner-token-file`; keep it in a password manager; never give it to your agent; it opens the owner console where
    you can change limits or revoke the agent) and stores the agent's credentials in this profile. The owner token is
@@ -181,7 +184,7 @@ on chain: its issuer backs it with a reserve of tERG (a Basis reserve contract),
 against that reserve; the tracker anchors its totals on Ergo testnet, so a set-off is final once a tracker box commits
 it. Use a Hermes profile of its own for it (a profile is on one network, and keeps it):
 
-    hermes profile create valun-testnet
+    hermes profile create valun-testnet --no-alias
     hermes -p valun-testnet plugins install https://github.com/fitzss/hermes-plugin-valun --enable
     hermes -p valun-testnet valun join --sandbox --server https://valun-testnet.fly.dev --direct-tools
 
@@ -202,14 +205,17 @@ the network's unit, up to 100000 PC-sized).
 
 ## Owner commands (run them yourself in a terminal; they refuse inside an agent session)
 
+Each command runs in the Valun profile: `hermes -p valun valun join`, `hermes -p valun chat -t valun`, and so on (use
+your profile's name). Without `-p` it talks to the default Hermes profile.
+
 | Command | What it does |
 |---|---|
-| `hermes valun join` / `enroll` | Join (or register a new agent key) and store the credentials in this profile |
-| `hermes valun status` / `doctor` | The connection, approvals and consent policy; plain checks with a fix for each problem |
-| `hermes valun consents [--process]` | The consents waiting for your client; with `--process`, sign what your policy allows now |
-| `hermes valun attempts list` | Every payment attempt your client records, and how it judges each now |
-| `hermes valun ergo address\|chain\|reserves\|reserve NANO\|redeem ISSUER AMOUNT` | The testnet network only: your agent's Ergo testnet address, the tracker's anchoring, the reserves; lock tERG of your own in a reserve, or redeem a note you hold against its issuer's reserve (both checked and signed here; sent only with `--broadcast`) |
-| `hermes valun attempts resolve DEAL ATTEMPT --applied\|--not-applied` | Only you, at a terminal, after asking the payee: record whether a payment whose outcome is unknown arrived. Your owner token is read once (hidden prompt or `--owner-token-file`) and never stored. A payment by debt transfer is resolved at the server, which records it as applied only if the payee's edge on the tracker shows the transfer (otherwise nothing changes, and the command says what to do instead); a credit note's attempt only in your client's records |
+| `hermes -p valun valun join` / `enroll` | Join (or register a new agent key) and store the credentials in this profile |
+| `hermes -p valun valun status` / `doctor` | The connection, approvals and consent policy; plain checks with a fix for each problem |
+| `hermes -p valun valun consents [--process]` | The consents waiting for your client; with `--process`, sign what your policy allows now |
+| `hermes -p valun valun attempts list` | Every payment attempt your client records, and how it judges each now |
+| `hermes -p valun-testnet valun ergo address\|chain\|reserves\|reserve NANO\|redeem ISSUER AMOUNT` | The testnet network only: your agent's Ergo testnet address, the tracker's anchoring, the reserves; lock tERG of your own in a reserve, or redeem a note you hold against its issuer's reserve (both checked and signed here; sent only with `--broadcast`) |
+| `hermes -p valun valun attempts resolve DEAL ATTEMPT --applied\|--not-applied` | Only you, at a terminal, after asking the payee: record whether a payment whose outcome is unknown arrived. Your owner token is read once (hidden prompt or `--owner-token-file`) and never stored. A payment by debt transfer is resolved at the server, which records it as applied only if the payee's edge on the tracker shows the transfer (otherwise nothing changes, and the command says what to do instead); a credit note's attempt only in your client's records |
 
 ## Not using Hermes?
 The same tools are available to any MCP client (Claude Desktop, Claude Code, Cursor, VS Code, ...) and from any
@@ -253,7 +259,7 @@ the `valun` package 0.5.1, copied unchanged, so the plugin needs nothing install
   profile.
   No other subprocesses, no background processes or threads, no telemetry, no self-updates.
 - **Model access to secrets:** Hermes's local terminal backend may pass profile secrets to commands the model runs. For a
-  Valun agent, run it with only the `valun` toolset (`hermes chat -t valun`) or a Docker/SSH terminal backend.
+  Valun agent, run it with only the `valun` toolset (`hermes -p valun chat -t valun`) or a Docker/SSH terminal backend.
 - **Approvals:** they depend on Hermes's approval gate. Do not run a Valun agent with `--yolo` or `approvals.mode: off`:
   either would let it sign commitments without asking you.
 
@@ -268,7 +274,7 @@ the `valun` package 0.5.1, copied unchanged, so the plugin needs nothing install
   between. 0.3.0 matched calls the same way.
 - **Bindings live in the plugin's process memory.** Hermes runs the hook and the handler in one process today; if a
   future Hermes split them, every commitment would be refused (`approval_missing`): nothing would be signed.
-- **The Plugins settings page** can show the `consents.*` settings wrongly (see above); `hermes valun status` is right.
+- **The Plugins settings page** can show the `consents.*` settings wrongly (see above); `hermes -p valun valun status` is right.
 
 ## What is real and what is not
 

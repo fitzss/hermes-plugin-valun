@@ -154,3 +154,47 @@ class Ergo(t.Base):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ToolWords052(unittest.TestCase):
+    """0.5.2 (fix inbox #15): the tools are registered in the words of the profile's network."""
+
+    def registered(self, network):
+        import importlib.util
+        import sys
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if 'valun_plugin_pkg' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('valun_plugin_pkg', os.path.join(root, '__init__.py'), submodule_search_locations=[root])
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules['valun_plugin_pkg'] = mod
+            spec.loader.exec_module(mod)
+        plugin = sys.modules['valun_plugin_pkg']
+
+        class Ctx:
+            def __init__(self):
+                self.schemas = {}
+
+            def get_config(self, key, default=None):
+                return network if key == 'network' else default
+
+            def register_tool(self, name, schema=None, **kw):
+                self.schemas[name] = schema
+
+            def register_hook(self, *a, **kw):
+                pass
+
+            def register_cli_command(self, **kw):
+                pass
+        ctx = Ctx()
+        plugin.register(ctx)
+        return ctx.schemas
+
+    def test_testnet_words(self):
+        import json as _json
+        tn = _json.dumps(self.registered('valun-testnet-1'))
+        self.assertNotRegex(tn, r'\bPC\b')
+        self.assertNotIn('pilot', tn)
+        self.assertIn('nanoERG of Ergo testnet', tn)
+        pilot = self.registered('valun-pilot-1')
+        self.assertIn('PC are pilot credits', pilot['valun_propose']['description'])
+        self.assertEqual(self.registered('')['valun_propose']['description'], pilot['valun_propose']['description'])

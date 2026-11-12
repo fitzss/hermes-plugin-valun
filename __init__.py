@@ -64,7 +64,8 @@ def register(ctx):
         except Exception:  # noqa: BLE001 - unavailable means "hide the tools", never crash
             return False
 
-    for schema in schemas.ALL:
+    # In the words of this profile's network (the testnet's nanoERG, not the pilot's PC; valun 0.5.2 schemas.for_network).
+    for schema in schemas.for_network(tools.network(ctx)):
         name = schema['name']
         ctx.register_tool(name=name, toolset=TOOLSET, schema=schema, handler=handlers[name],
                           check_fn=(None if name == 'valun_status' else has_credentials), emoji='🤝')
@@ -88,7 +89,7 @@ def _setup_cli(subparser, ctx):
     e.add_argument('--code-from-stdin', action='store_true', help='read the enrollment code from stdin (for scripts) instead of a hidden prompt')
     subs.add_parser('status', help='show the Valun connection of this profile and its consent policy (never shows secrets)')
     subs.add_parser('doctor', help='check this profile for everything Valun needs, and say how to fix what is missing')
-    j = subs.add_parser('join', help='join the Valun pilot with an invite (or --sandbox, no invite) and connect this agent, in one step')
+    j = subs.add_parser('join', help='join Valun (--sandbox: no invite needed) and connect this agent, in one step')
     j.add_argument('--sandbox', action='store_true',
                    help='join without an invite as a self-serve participant: small limits, 7 days renewed while your agent is '
                         'active; where the server runs the open network (the default server does) it deals with any agent '
@@ -290,7 +291,7 @@ def _doctor(ctx):
     if pid and real(tok) and real(sec):
         ok.append(f'Connected profile: participant {pid}, agent token and signing key stored')
     else:
-        problems.append(f'Not connected: run `{_hermes(ctx, "join --sandbox")}` (no invite: sandbox only), '
+        problems.append(f'Not connected: run `{_hermes(ctx, "join --sandbox")}` (no invite: a self-serve participant), '
                         f'`{_hermes(ctx, "join")}` (with an invite) or `{_hermes(ctx, "enroll")}` (with an enrollment code).')
     try:
         info = vc.Client(_MemoryStore(), server).request('GET', '/pilot/v1/info', auth=False)
