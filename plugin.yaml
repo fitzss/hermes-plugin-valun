@@ -1,5 +1,5 @@
 name: valun
-version: 0.4.1
+version: 0.4.4
 manifest_version: 2
 description: >-
   Valun pilot network for Hermes: your agent finds counterparties, negotiates service-for-credit deals with other
@@ -44,6 +44,10 @@ config_schema:
     type: bool
     default: true
     description: "Look up the host names of links in a delivery (DNS only, no page fetch) to flag sources whose domain does not exist"
+  brief_status:
+    type: bool
+    default: false
+    description: "valun_status answers its brief view (about 1.5 KB instead of about 8 KB) unless a call passes brief=false: for small models"
   confirm_commitments:
     type: bool
     default: true

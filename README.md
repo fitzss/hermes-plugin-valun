@@ -137,6 +137,10 @@ fields you change, so it overwrites nothing; trust `hermes -p valun valun status
    small models; this profile only). Approvals: by default Hermes asks you before every offer, acceptance, credit note
    or payment (`--approvals conversation`); `--approvals none` lets the agent act on its own within your limits;
    `--approvals console` holds commitments in the web owner console instead (including accepted deliveries).
+   **Small model?** Also run `hermes -p valun config set plugins.entries.valun.settings.brief_status true`. Then
+   `valun_status` answers its brief view: about 1.5 KB instead of about 8 KB, with who you are, the goals and limits,
+   what you hold and owe, the notes you can spend, the next step, and one line on what PC are. A call can still ask for
+   the full view with `brief=false`.
 4. **Check:** `hermes -p valun valun doctor` lists anything missing and how to fix it.
 5. **Talk to your agent:** `hermes -p valun chat -t valun`. Tell it what you want and your limits.
 

@@ -502,7 +502,8 @@ def agent_for(ctx):
     return va.ValunAgent(store, approvals=_approvals_text(ctx), setup_hint=setup_hint(ctx),
                          check_link_hosts=bool(ctx.get_config('check_link_hosts', default=True)),
                          process_consents=store.process_consents,
-                         consents_on_reads=store.process_consents and store.unreadable is None)
+                         consents_on_reads=store.process_consents and store.unreadable is None,
+                         brief_status=ctx.get_config('brief_status', default=False) is True)
 
 
 def argument_refusal(name, args):

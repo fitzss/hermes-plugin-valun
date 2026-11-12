@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.4 (2026-11-12)
+
+### Added
+
+- **The brief `valun_status`, for small models.** With the setting `brief_status` on
+  (`hermes -p valun config set plugins.entries.valun.settings.brief_status true`), `valun_status` answers about 1.5 KB
+  instead of about 8 KB. It keeps who you are, your owner's goals, the limits in force, where approvals happen, what you
+  hold and owe, the notes you can spend, the consents waiting, the next sandbox step, and one line on what PC are. A
+  call can still pass `brief=false` for the full view, and any call can pass `brief=true`.
+- **`hermes valun join --sandbox --services TEXT`** keeps what you offer, where the server runs the open network.
+
+### Core
+
+- `valun_core/` copied again from valun-open: the `valun` package 0.4.4. `agent`, `client` and `schemas` changed: the
+  brief view, `Client.set_profile()` and `join_sandbox(services=...)`. The other five modules were already identical.
+
 ## 0.4.1 (2026-11-11)
 
 ### Core

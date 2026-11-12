@@ -416,7 +416,7 @@ def _join(args, ctx):
     c = vc.Client(store, server)
     try:
         if sandbox:   # no invite: a sandbox-only participant (only where the server offers it)
-            j = c.join_sandbox(args.handle, args.operator, display_name=args.display_name, about=args.about)
+            j = c.join_sandbox(args.handle, args.operator, display_name=args.display_name, about=args.about, services=args.services)
         else:
             j = c.join(invite, args.handle, args.operator, display_name=args.display_name, about=args.about, services=args.services)
     except vc.ValunError as e:
