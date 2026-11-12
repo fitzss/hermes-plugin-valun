@@ -308,7 +308,8 @@ class Join(Base):
         ctx = Ctx()
         code, out = self.join(ctx, Server(join_routes(self, enroll={'agent_token': 'agent-token-throwaway'})))  # no network
         self.assertEqual(code, 1)
-        self.assertIn("and the server may hold this agent's key, but the key could not be stored here (KeyError)", out)
+        # The 0.5 core checks the answer's network before it stores the key (wrong_network); 0.4's raised KeyError.
+        self.assertIn("and the server may hold this agent's key, but the key could not be stored here (wrong_network)", out)
         self.assertIn('revoke this agent, which gives a new enrollment code (a new code is refused while a key is '
                       'registered); if the console shows no agent key, issue an enrollment code instead', out)
         self.assertIn(f'`hermes -p valun-test valun enroll --server {SERVER} --participant {PID}`', out)

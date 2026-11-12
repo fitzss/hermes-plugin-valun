@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.5.0 (2026-11-12)
+
+### Added
+
+- **The testnet network** (`valun-testnet-1`, https://valun-testnet.fly.dev: nanoERG of Ergo testnet, test coins with
+  no monetary value). `hermes valun join --sandbox --server https://valun-testnet.fly.dev` joins it; the profile keeps
+  the network its join or enrollment named (the `network` setting), so its client builds and checks every deal for
+  that network in later sessions too. Use a Hermes profile of its own for it.
+- **`hermes valun ergo address|chain|reserves|reserve NANO|redeem ISSUER AMOUNT`** (the owner, at a terminal; refused
+  inside an agent session): this agent's Ergo testnet address, the tracker's anchoring, the reserves; a reserve of your
+  own tERG, and the redemption of a note you hold against its issuer's reserve. Both are checked against the chain and
+  signed with this agent's own key; nothing is sent without `--broadcast`, and a dry run never prints the signed
+  transaction.
+
+### Changed
+
+- The consent cap is PC-sized in the network's unit, as `valun join` and `valun config consents.max_PC` take it: a
+  testnet join writes 50,000,000 nanoERG (50 PC-sized), and `consents.max_PC` takes up to 100000 PC-sized
+  (100,000,000,000 nanoERG on the testnet). On the pilot nothing changes.
+- The plugin's own texts name the network's unit: the join report's limits and consent cap, `hermes valun doctor`,
+  `status` (which also shows the network), `consents` and `attempts`.
+- `hermes valun join`: when the server registers the key but its answer names another network (wrong_network, the 0.5
+  core's check), join says the server may hold the key and how to finish, as for any answer it cannot take.
+
+### Core
+
+- `valun_core/` copied again from valun-open: the `valun` package 0.5.0, with the new `ergo` module (settlement on Ergo
+  testnet; redemptions signed natively). On the testnet the core's texts are in nanoERG (with tERG) and its labels are
+  the server's testnet labels; on the pilot every text is as in 0.4.6.
+
 ## 0.4.5 (2026-11-12)
 
 ### Added

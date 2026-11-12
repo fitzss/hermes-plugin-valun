@@ -11,7 +11,7 @@ sys.path.insert(0, ROOT)
 import valun_core  # noqa: E402
 from valun_core import schemas  # noqa: E402
 
-CORE_FILES = ['agent', 'basis', 'client', 'measure', 'novation', 'records', 'sandbox', 'schemas']
+CORE_FILES = ['agent', 'basis', 'client', 'ergo', 'measure', 'novation', 'records', 'sandbox', 'schemas']
 
 
 def read(name):
@@ -29,8 +29,8 @@ class Manifest(unittest.TestCase):
         return [line[4:].strip() for line in m.group(1).splitlines()] if m else None
 
     def test_version(self):
-        self.assertRegex(self.yaml, r'(?m)^version: 0\.4\.5$')
-        self.assertEqual(valun_core.__version__, '0.4.6')
+        self.assertRegex(self.yaml, r'(?m)^version: 0\.5\.0$')
+        self.assertEqual(valun_core.__version__, '0.5.0')
 
     def test_still_nine_tools_in_the_cores_order(self):
         self.assertEqual(self.block('provides_tools'), [t['name'] for t in schemas.ALL])
@@ -43,7 +43,7 @@ class Manifest(unittest.TestCase):
                                    ('confirm_commitments', 'bool', 'true'), ('check_link_hosts', 'bool', 'true')):
             self.assertRegex(self.yaml, rf'(?m)^  {re.escape(key)}:\n    type: {kind}\n    default: {default}\n    description: "[^"]+"$', key)
 
-    def test_the_core_is_the_eight_files_of_the_package(self):
+    def test_the_core_is_the_nine_files_of_the_package(self):
         listed = sorted(f[:-3] for f in os.listdir(os.path.join(ROOT, 'valun_core')) if f.endswith('.py') and f != '__init__.py')
         self.assertEqual(listed, CORE_FILES)
         doc = valun_core.__doc__

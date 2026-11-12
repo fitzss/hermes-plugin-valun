@@ -1,5 +1,5 @@
 name: valun
-version: 0.4.5
+version: 0.5.0
 manifest_version: 2
 description: >-
   Valun pilot network for Hermes: your agent finds counterparties, negotiates service-for-credit deals with other
@@ -7,7 +7,8 @@ description: >-
   notes only within limits its human owner sets. Where the server offers circulating credit, a note can also move to a
   new creditor (a debt transfer the debtor and both creditors sign) or be cancelled against an equal opposite debt (a
   set-off every party signs; no net position changes). Experimental: pilot credits (PC) have no monetary value, nothing
-  is redeemed and there is no reserve.
+  is redeemed and there is no reserve. On the separate Valun testnet network (since 0.5.0) a note can be redeemed on
+  Ergo testnet against its issuer's reserve, in tERG: test coins with no monetary value.
 author: Valun
 license: MIT
 requires_hermes: ">=0.22.7"

@@ -38,7 +38,8 @@ RECORDS_FILE = 'valun-records.json'        # plugin-data/valun/: every CORE_STAT
 LEGACY_FILE = 'issued-notes.json'           # 0.3's record of credit notes issued: valun-records.json starts from it
 CONSENT_ROLES = ('setoff', 'as_issuer', 'as_new_creditor')    # the plugin config's consents.<role> (true or false)
 CONSENT_MAX_PC = va.SANDBOX_CONSENT_POLICY['max_PC']          # one consent's cap, for a policy the config starts
-CONSENT_CAP_LIMIT = 100000                  # consents.max_PC: a whole number of PC up to this, or none (as `valun config`)
+CONSENT_CAP_LIMIT = 100000                  # consents.max_PC: a whole number of PC up to this, or none (as `valun config`);
+                                            # on another network PC-sized: times its scale (nanoERG on the testnet)
 _UNSET = object()
 BLOCK_TEXT = 'Valun could not read what you would sign; nothing was signed.'
 RECORDS_BLOCK_TEXT = ("Valun cannot read its own records (plugin-data/valun/valun-records.json), so it signs nothing; "
@@ -51,7 +52,7 @@ APPROVAL_MISSING = {
                         'owner, and the call signs exactly what your owner approves.')}
 # consent_policy_in_force.how_to_change in valun_status, for Hermes (the core's names `valun config consents.*`).
 HOW_TO_CHANGE = ('your owner changes the local policy in a terminal with `{roles}` (<role>: setoff, as_issuer or '
-                 'as_new_creditor) and `{cap}` (N: whole PC up to 100000, or none for no cap); your Valun client signs '
+                 'as_new_creditor) and `{cap}` (N: whole {unit} up to {limit}, or none for no cap); your Valun client signs '
                  'consents by itself only while process_consents is on (`{on}`), and `{status}` shows the policy in '
                  'force; your owner changes the mandate in the owner console; the stricter of the two applies')
 ROLES_NOTE = ' (<role>: setoff, as_issuer or as_new_creditor)'
@@ -97,6 +98,22 @@ def server_url(ctx):
     return (ctx.get_config('server_url', default=DEFAULT_SERVER) or DEFAULT_SERVER).rstrip('/')
 
 
+def network(ctx):
+    """This profile's Valun network (0.5): the one its join or enrollment named (the `network` setting), valun-pilot-1
+    for a profile without one. For the plugin's own texts; the core reads the setting itself (HermesStore) and refuses
+    a network it does not know."""
+    n = ctx.get_config('network', default='') or ''
+    return n if n in vc.NETWORKS else vc.NETWORK
+
+
+def unit(ctx):
+    return vc.NETWORKS[network(ctx)]['unit']
+
+
+def scale(ctx):
+    return vc.NETWORKS[network(ctx)]['scale']
+
+
 def consent_cap(ctx):
     """The plugin config's consents.max_PC, as `valun config consents.max_PC` takes it: (cap, problem). cap is a whole
     number of PC from 0 to CONSENT_CAP_LIMIT (a digit string counts), None for no cap (`none`, which `hermes config
@@ -108,13 +125,14 @@ def consent_cap(ctx):
         return _UNSET, None
     if value is None or (isinstance(value, str) and value.strip().lower() == 'none'):
         return None, None
-    if isinstance(value, str) and re.fullmatch(r'[0-9]{1,7}', value.strip()):
+    if isinstance(value, str) and re.fullmatch(r'[0-9]{1,13}', value.strip()):
         value = int(value.strip())
-    if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= CONSENT_CAP_LIMIT:
+    limit, u = CONSENT_CAP_LIMIT * scale(ctx), unit(ctx)
+    if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= limit:
         return value, None
     shown = ''.join(ch if ch.isprintable() else ' ' for ch in repr(value))[:40]
-    return 0, (f'consents.max_PC is {shown}, not a whole number of PC from 0 to {CONSENT_CAP_LIMIT} or none, so your '
-               'client signs no consent above 0 PC until it is fixed')
+    return 0, (f'consents.max_PC is {shown}, not a whole number of {u} from 0 to {limit} or none, so your '
+               f'client signs no consent above 0 {u} until it is fixed')
 
 
 def configured_policy(ctx, kept=None):
@@ -131,7 +149,7 @@ def configured_policy(ctx, kept=None):
     cap, _problem = consent_cap(ctx)
     if not flags and cap is _UNSET:
         return kept if isinstance(kept, dict) else None
-    policy = dict(kept) if isinstance(kept, dict) else {'max_PC': CONSENT_MAX_PC}
+    policy = dict(kept) if isinstance(kept, dict) else {'max_PC': CONSENT_MAX_PC * scale(ctx)}
     policy.update(flags)
     if cap is None:
         policy.pop('max_PC', None)
@@ -220,7 +238,8 @@ def setup_hint(ctx):
 
 
 def how_to_change(ctx):
-    return HOW_TO_CHANGE.format(roles=setting_cmd(ctx, 'consents.<role>', 'true|false'),
+    return HOW_TO_CHANGE.format(roles=setting_cmd(ctx, 'consents.<role>', 'true|false'), unit=unit(ctx),
+                                limit=CONSENT_CAP_LIMIT * scale(ctx),
                                 cap=setting_cmd(ctx, 'consents.max_PC', 'N'),
                                 on=setting_cmd(ctx, 'process_consents', 'true'), status=hermes_cmd(ctx, 'status'))
 
@@ -427,6 +446,9 @@ class HermesStore:
         """The state the core works on, in place: the plugin's settings and the stored CORE_STATE_KEYS, with the
         configured consent policy only while process_consents is on."""
         state = {'server': server_url(self.ctx), 'participant_id': self.ctx.get_config('participant_id', default='') or ''}
+        net = self.ctx.get_config('network', default='') or ''
+        if net:                 # the network the join or enrollment named (0.5); none: the pilot, as before 0.5
+            state['network'] = net
         for k in vc.CORE_STATE_KEYS:
             if k in data and k != 'consent_policy':
                 state[k] = data[k]

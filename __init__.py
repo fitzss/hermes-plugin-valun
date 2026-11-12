@@ -6,6 +6,7 @@ one snapshot of what would be signed, and blocks the call when that snapshot can
 `hermes valun join|enroll|status|doctor|consents|attempts`, run by a person in a terminal.
 """
 import getpass
+import json
 import logging
 import os
 import re
@@ -129,6 +130,23 @@ def _setup_cli(subparser, ctx):
     ar.add_argument('--note', dest='valun_note', default=None, help='a short note for the server audit line (at most 300 characters)')
     ar.add_argument('--owner-token-file', dest='valun_owner_token_file',
                     help='the file holding your owner token (read once, never stored); otherwise it is asked for, hidden')
+
+    eg = subs.add_parser('ergo', help="the testnet network: settlement on Ergo testnet (OWNER, at a terminal): this agent's "
+                                      'Ergo address, the chain, the reserves, a reserve of your own tERG and the redemption of '
+                                      'a note you hold (reserve and redeem send nothing without --broadcast)')
+    egs = eg.add_subparsers(dest='valun_ergo')
+    egs.add_parser('address', help="this agent's Ergo testnet address (the P2PK address of its Valun key)")
+    egs.add_parser('chain', help="the tracker's anchoring on Ergo testnet")
+    egs.add_parser('reserves', help='the Basis reserves the network sees')
+    er = egs.add_parser('reserve', help='lock NANO nanoERG of your own tERG in a Basis reserve (needs ergo-lib-python '
+                                        '0.28.0 in Hermes\'s Python; sent only with --broadcast)')
+    er.add_argument('valun_nano', metavar='NANO', type=int)
+    er.add_argument('--broadcast', dest='valun_broadcast', action='store_true')
+    ed = egs.add_parser('redeem', help='redeem AMOUNT nanoERG of the note ISSUER issued to you, against its reserve (signed '
+                                       'here with your own key; submitted only with --broadcast)')
+    ed.add_argument('valun_issuer', metavar='ISSUER', help="the issuer's handle or participant id")
+    ed.add_argument('valun_amount', metavar='AMOUNT', type=int)
+    ed.add_argument('--broadcast', dest='valun_broadcast', action='store_true')
 
 
 class _MemoryStore:
@@ -287,10 +305,12 @@ def _doctor(ctx):
                         'signed.')
     if pid and real(tok) and real(sec):
         try:
-            me = vc.Client(store).me()
+            cl = vc.Client(store)
+            me = cl.me()
             m = me['mandate']
-            ok.append(f"Agent accepted by the server as {me['participant']['handle']}; limits: at most {m['max_issue_per_deal']} PC "
-                      f"per deal, {m['max_issue_outstanding']} PC owed in total")
+            ok.append(f"Agent accepted by the server as {me['participant']['handle']} on {cl.network}; limits: at most "
+                      f"{vc.amount_text(m['max_issue_per_deal'], cl.unit)} per deal, "
+                      f"{vc.amount_text(m['max_issue_outstanding'], cl.unit)} owed in total")
             if me['participant'].get('status') != 'active':
                 problems.append(f'The agent key is not active: ask your owner to issue an enrollment code, then '
                                 f'`{_hermes(ctx, "enroll")}`.')
@@ -496,7 +516,9 @@ def _join_steps(args, ctx, c, store, j, server, owner, sandbox, step):
     except Exception as e:  # noqa: BLE001 - a request refused, or an answer this client could not take
         # Nothing is stored in this profile yet (no key, no settings), so the command names the server and the
         # participant too.
-        if isinstance(e, vc.ValunError):        # refused, or never reached the server: no key is registered
+        # refused, or never reached the server: no key is registered. wrong_network is the core's check of the
+        # server's answer (0.5): the server registered the key, so it is the case below.
+        if isinstance(e, vc.ValunError) and e.code != 'wrong_network':
             print(f"Your participant {pid} was created, but this agent's key could not be registered ({_failure(e)}): "
                   f'{_terminal_text(e)}')
             print(f'To finish: issue an enrollment code in the owner console ({server}/pilot#owner) with your owner token, '
@@ -518,6 +540,7 @@ def _join_steps(args, ctx, c, store, j, server, owner, sandbox, step):
     step[0] = 'settings'
     ctx.set_config('server_url', server)
     ctx.set_config('participant_id', pid)
+    ctx.set_config('network', c.network)      # 0.5: the network the join named (the testnet too), kept with the server
     # Commitments: Hermes asks before each one ('conversation'), or not at all ('none'). 'console' keeps Hermes asking
     # until the mandate step below holds every commitment for the owner in the console.
     ctx.set_config('confirm_commitments', args.approvals != 'none')
@@ -529,7 +552,8 @@ def _join_steps(args, ctx, c, store, j, server, owner, sandbox, step):
     policy = va.SANDBOX_CONSENT_POLICY if sandbox else va.INVITE_CONSENT_POLICY
     for role in tools.CONSENT_ROLES:
         ctx.set_config(f'consents.{role}', policy[role] is True)
-    ctx.set_config('consents.max_PC', policy['max_PC'])
+    cap = policy['max_PC'] * vc.network_of(c.network)['scale']      # PC-sized: in the network's unit
+    ctx.set_config('consents.max_PC', cap)
     if sandbox:
         ctx.set_config('process_consents', True)
     if args.direct_tools:
@@ -577,13 +601,14 @@ def _join_steps(args, ctx, c, store, j, server, owner, sandbox, step):
                'console': f'Approvals: commitments wait for you in the owner console ({server}/pilot#owner), including '
                           'accepting a delivery (its credit note or payment is made only after you approve it).',
                'none': 'Approvals: none. Your agent acts on its own within your limits '
-                       f"(at most {limits.get('max_issue_per_deal')} PC per deal, {limits.get('max_issue_outstanding')} PC owed in total)."}[args.approvals])
+                       f"(at most {vc.amount_text(limits.get('max_issue_per_deal'), c.unit)} per deal, "
+                       f"{vc.amount_text(limits.get('max_issue_outstanding'), c.unit)} owed in total)."}[args.approvals])
     step[0] = 'report'
     if circulating:
         if sandbox:
             print('Consents: your Valun client signs, by itself, set-offs that leave your net position unchanged, transfers of '
                   'your own debt and payments to you by transfer from the sandbox agents (up to '
-                  f"{policy['max_PC']} PC each), before Valun tool calls that are not read-only; set-offs and payments to "
+                  f"{vc.amount_text(cap, c.unit)} each), before Valun tool calls that are not read-only; set-offs and payments to "
                   'you also before valun_status and valun_inbox, at most once a minute (process_consents on; nothing runs '
                   f'in the background). Turn it off: `{_setting_cmd(ctx, "process_consents", "false")}`.')
         else:
@@ -599,6 +624,7 @@ def _status(ctx):
     tok, sec = bool(tools.secret_value('VALUN_AGENT_TOKEN')), bool(tools.secret_value('VALUN_SIGNING_SECRET'))
     store = tools.HermesStore(ctx)
     print(f"server:          {ctx.get_config('server_url', default=tools.DEFAULT_SERVER)}")
+    print(f"network:         {tools.network(ctx)} (amounts in {tools.unit(ctx)})")
     print(f"participant:     {ctx.get_config('participant_id', default='') or '(not enrolled)'}")
     print(f"agent token set: {'yes' if tok else 'no'}")
     print(f"signing key set: {'yes' if sec else 'no'}")
@@ -634,7 +660,7 @@ def _mandate_of(me):
 _ISO = re.compile(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z\Z')
 
 
-def _consent_line(item):
+def _consent_line(item, unit=vc.UNIT):
     """One consent item of GET /consents, from checked values only (the server wrote it)."""
     kind = item.get('kind') if item.get('kind') in ('transfer', 'setoff') else '?'
     roles = [r for r in item.get('your_roles') or [] if r in ('payer', 'issuer', 'payee', 'member')] \
@@ -643,22 +669,22 @@ def _consent_line(item):
     summ = item.get('summary') if isinstance(item.get('summary'), dict) else {}
     out = f"{kind} {nv.shown_id(item.get('id')) or '?'} as {', '.join(roles) or '?'}"
     if _whole(ctxt.get('amount')):
-        out += f", {ctxt['amount']} PC"
+        out += f", {ctxt['amount']} {unit}"
     if _whole(summ.get('your_net_change_PC')):
-        out += f" (your net change {summ['your_net_change_PC']} PC)"
+        out += f" (your net change {summ['your_net_change_PC']} {unit})"
     if isinstance(item.get('expires_at'), str) and _ISO.match(item['expires_at']):
         out += f", open until {item['expires_at']}"
     return out
 
 
-def _decisions(report):
+def _decisions(report, unit=vc.UNIT):
     """process_consents() decisions, one line each (its entries hold checked values only)."""
     lines = []
     for bucket in ('signed', 'refused', 'waiting'):
         for e in report.get(bucket) or []:
             what = f"{e.get('kind')} {e.get('id')} as {e.get('role')}"
             if e.get('amount') is not None:
-                what += f", {e.get('amount')} PC (your net change {e.get('your_net_change_PC')} PC)"
+                what += f", {e.get('amount')} {unit} (your net change {e.get('your_net_change_PC')} {unit})"
             why = e.get('code') or ''
             lines.append(f'  {bucket:8} {what}' + (f': {why}' if why and bucket != 'signed' else ''))
     return lines
@@ -693,7 +719,7 @@ def _consents(args, ctx):
     waiting = [i for i in (items if isinstance(items, list) else []) if isinstance(i, dict) and i.get('state') == 'collecting']
     print(f'Consents waiting for your client: {len(waiting)}')
     for i in waiting:
-        print('  ' + _consent_line(i))
+        print('  ' + _consent_line(i, tools.unit(ctx)))
     if not getattr(args, 'valun_process', False):
         if waiting:
             print(f'`{_hermes(ctx, "consents --process")}` signs those your policy allows and refuses the others.')
@@ -703,7 +729,7 @@ def _consents(args, ctx):
     except vc.ValunError as e:
         print(f'Could not process them ({e.code}): {_owner_text(ctx, e)}')
         return 1
-    lines = _decisions(r)
+    lines = _decisions(r, tools.unit(ctx))
     print('\n'.join(lines) if lines else 'Nothing waits for your client.')
     return 0
 
@@ -764,9 +790,9 @@ def _attempt_line(c, r):
     when = datetime.fromtimestamp(r['timestamp'] / 1000, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
     prior = r['prior'] if r['prior'] is not None else '?'
     if r['route'] == 'note':
-        what = f"your credit note to {_who_key(c, rcp)}: your debt {prior} -> {r['total']} PC"
+        what = f"your credit note to {_who_key(c, rcp)}: your debt {prior} -> {r['total']} {c.unit}"
     else:
-        what = f"paying with the note of {_who_key(c, i)}: your claim {prior} -> {r['total']} PC"
+        what = f"paying with the note of {_who_key(c, i)}: your claim {prior} -> {r['total']} {c.unit}"
     sid = f", server id {r['attempt_id']}" if r.get('attempt_id') else ''
     decided = (f"; you resolved it: {r['outcome']}" if r.get('outcome') in vc.ATTEMPT_OUTCOMES and r.get('outcome') != 'applied'
                else '')
@@ -980,6 +1006,42 @@ def _attempts(args, ctx):
     return 0
 
 
+def _ergo(args, ctx):
+    """`hermes valun ergo ...`: settlement on Ergo testnet for this profile's agent (the testnet network only), as the
+    valun package's `valun ergo` does it. The owner runs it at a terminal (never the agent: _run_cli refuses inside an
+    agent session). The core checks what the tracker built against the chain before this agent's key signs it; reserve
+    and redeem send nothing without --broadcast. tERG are test coins with no monetary value."""
+    action = getattr(args, 'valun_ergo', None)
+    if action not in ('address', 'chain', 'reserves', 'reserve', 'redeem'):
+        print(f'usage: `{_hermes(ctx, "ergo address|chain|reserves|reserve NANO [--broadcast]|redeem ISSUER AMOUNT [--broadcast]")}`')
+        return 1
+    store, c = _connected(ctx)
+    if c is None:
+        return 1
+    broadcast = bool(getattr(args, 'valun_broadcast', False))
+    try:
+        if action == 'address':
+            out = {'network': c.network, 'address': c.ergo_address(), 'unit': c.unit,
+                   'note': 'Ergo TESTNET: test coins (tERG) with no monetary value; send tERG here from a testnet faucet'}
+        elif action == 'chain':
+            out = c.chain()
+        elif action == 'reserves':
+            out = c.reserves()
+        elif action == 'reserve':
+            out = c.create_reserve(args.valun_nano, broadcast=broadcast)
+        else:
+            out = c.redeem(args.valun_issuer, args.valun_amount, broadcast=broadcast)
+        if action in ('reserve', 'redeem') and not broadcast and isinstance(out, dict):
+            out = {k: v for k, v in out.items() if k != 'signed'}
+            out['dry_run'] = ('checked and signed here, NOT sent: add --broadcast to send it' if action == 'reserve'
+                              else 'checked and signed here, NOT submitted: add --broadcast to submit it')
+    except vc.ValunError as e:
+        print(f'{action} failed ({e.code}): {_terminal_text(e)}')
+        return 1
+    print(json.dumps(out, ensure_ascii=False, indent=1))
+    return 0
+
+
 def _run_cli(args, ctx):
     cmd = getattr(args, 'valun_command', None)
     if any(k.startswith('HERMES_SESSION_') for k in os.environ):
@@ -995,10 +1057,12 @@ def _run_cli(args, ctx):
         return _consents(args, ctx)
     if cmd == 'attempts':
         return _attempts(args, ctx)
+    if cmd == 'ergo':
+        return _ergo(args, ctx)
     if cmd != 'enroll':
         print('usage: hermes valun join --handle H --operator NAME | hermes valun enroll [--participant vp_...] | '
               'hermes valun status | hermes valun doctor | hermes valun consents [--process] | '
-              'hermes valun attempts list|resolve')
+              'hermes valun attempts list|resolve | hermes valun ergo address|chain|reserves|reserve|redeem')
         return 1
     server = (args.server or ctx.get_config('server_url', default=tools.DEFAULT_SERVER) or tools.DEFAULT_SERVER).rstrip('/')
     participant = (args.participant or input('Participant id (vp_..., from your owner console): ')).strip()
@@ -1017,6 +1081,7 @@ def _run_cli(args, ctx):
         return 1
     ctx.set_config('server_url', server)
     ctx.set_config('participant_id', participant)
+    ctx.set_config('network', r['network'])
     print(f"Enrolled {participant} on {r['network']}. This agent's public key: {r['pubkey'][:16]}...")
     print('The signing key and agent token are stored in this Hermes profile\'s secrets (not shown). '
           'Start a new Hermes session to use the Valun tools.')

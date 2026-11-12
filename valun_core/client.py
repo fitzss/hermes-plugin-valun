@@ -26,10 +26,33 @@ from . import basis as vb
 from . import novation as nv
 from . import records
 
-NETWORK = 'valun-pilot-1'
+NETWORK = 'valun-pilot-1'          # the default network: a profile enrolled before 0.5 is on it
 PROTOCOL = 'valun-deal/1'
 PILOT_TOKEN_ID = hashlib.sha256(b'valun-pilot-credit/1').hexdigest()
 UNIT = 'PC'
+# The networks this client signs for (the server's lib/pilot/units.mjs). Amounts are whole numbers in the unit; `scale`
+# sizes the defaults written in PC (a consent cap of 50 is 50 * scale), never a signed amount.
+#   valun-pilot-1    PC: synthetic credits on a pilot tracker with no chain.
+#   valun-testnet-1  nanoERG on Ergo TESTNET (test coins, no monetary value): ERG-denominated Basis notes.
+NETWORKS = {'valun-pilot-1': {'unit': 'PC', 'scale': 1}, 'valun-testnet-1': {'unit': 'nanoERG', 'scale': 1_000_000}}
+
+
+def amount_text(n, unit=UNIT):
+    """An amount as people read it, in its network's unit: '3 PC' on the pilot; '3000000 nanoERG (0.003 tERG)' on the
+    testnet (exact: whole nanoERG to tERG by integer arithmetic). Anything but a whole number is shown as is."""
+    if unit != 'nanoERG' or not isinstance(n, int) or isinstance(n, bool):
+        return f'{n} {unit}'
+    whole, frac = divmod(abs(n), 10 ** 9)
+    terg = f'{whole}.{frac:09d}'.rstrip('0').rstrip('.')
+    return f"{n} nanoERG ({'-' if n < 0 else ''}{terg} tERG)"
+
+
+def network_of(name):
+    """The known network `name` ({unit, scale}); ValunError('unknown_network') for any other."""
+    if not isinstance(name, str) or name not in NETWORKS:
+        raise ValunError('unknown_network', f'this client does not know the Valun network {name!r} (it knows {", ".join(NETWORKS)}); '
+                                            'nothing was signed. Update valun if this is a new network.')
+    return NETWORKS[name]
 # Optional state keys a store keeps for this client (every store must keep them; all may be absent):
 #   issued    {pair: confirmed total} of this client's outgoing edges (the 0.3 record, kept equal to records' confirmed)
 #   records   per-edge confirmed state and pending entries (records.py), and records['paid_deals'] {deal_id: {route,
@@ -751,7 +774,7 @@ class Client:
                 'services': services}
         if wants:
             body['wants'] = wants
-        return self.request('POST', '/pilot/v1/join', body, auth=False)
+        return self._joined(self.request('POST', '/pilot/v1/join', body, auth=False))
 
     def join_sandbox(self, handle, operator, display_name='', about='', services='', wants=''):
         """Create a self-serve participant without an invite (where the server offers it), within small limits. Where the
@@ -764,7 +787,14 @@ class Client:
             body['services'] = services
         if wants:
             body['wants'] = wants
-        return self.request('POST', '/pilot/v1/join-sandbox', body, auth=False)
+        return self._joined(self.request('POST', '/pilot/v1/join-sandbox', body, auth=False))
+
+    def _joined(self, r):
+        """A join's answer: servers since 0.5 name their network, which this profile then enrolls on (a known one only)."""
+        if isinstance(r, dict) and r.get('network') is not None:
+            network_of(r['network'])
+            self.state['network'] = r['network']
+        return r
 
     def set_profile(self, display_name=None, about=None, services=None, wants=None):
         """Change this participant's public profile (PUT /pilot/v1/profile, the agent's token): only the fields given.
@@ -779,10 +809,14 @@ class Client:
         """Generate this agent's key locally and register its public key with a proof-of-possession signature."""
         if self.connected:
             raise ValunError('already_connected', 'this client already holds an enrolled key')
+        net = self.state.get('network') or NETWORK          # the network the join named (join, join_sandbox)
+        network_of(net)
         secret = vb.generate_secret()
         pk = vb.public_key(secret).hex()
-        sig = vb.sign(statement('enroll', NETWORK, participant_id, pk, sha256_hex(code)).encode('utf-8'), secret, bytes.fromhex(pk)).hex()
+        sig = vb.sign(statement('enroll', net, participant_id, pk, sha256_hex(code)).encode('utf-8'), secret, bytes.fromhex(pk)).hex()
         r = self.request('POST', '/pilot/v1/enroll', {'participant_id': participant_id, 'code': code, 'pubkey': pk, 'signature': sig}, auth=False)
+        if r.get('network') != net:
+            raise ValunError('wrong_network', f"the server enrolled this key on {r.get('network')!r}, not {net!r}")
         self.state.update({'participant_id': participant_id, 'pubkey': pk, 'network': r['network'],
                            'enrolled_at': _iso(datetime.now(timezone.utc)), 'issued': self.state.get('issued', {})})
         self.store.save_credentials(secret.hex(), r['agent_token'])
@@ -834,6 +868,22 @@ class Client:
             self._update(note)
         except (ValunError, OSError):
             pass
+
+    # ---------- the network (0.5) ----------
+    @property
+    def network(self):
+        """This profile's network: the one it enrolled on (state['network']), valun-pilot-1 for a profile without one."""
+        n = self.state.get('network') or NETWORK
+        network_of(n)
+        return n
+
+    @property
+    def unit(self):
+        return NETWORKS[self.network]['unit']
+
+    @property
+    def scale(self):
+        return NETWORKS[self.network]['scale']
 
     # ---------- pins (R13) ----------
     def _pinned(self):
@@ -931,7 +981,7 @@ class Client:
         h = terms_hash(t)
         if h != cur['terms_hash']:
             raise ValunError('hash_mismatch', 'the terms do not hash to the stated terms_hash; refusing to sign')
-        if t['network'] != NETWORK or t['protocol'] != PROTOCOL:
+        if t['network'] != self.network or t['protocol'] != PROTOCOL:
             raise ValunError('wrong_network', 'terms are for a different network or protocol')
         info = self.info()
         if t['tracker_nft_id'] != info['tracker_nft_id'] or t['denomination'] != info['denomination']:
@@ -960,12 +1010,12 @@ class Client:
         other = {'id': counterparty_id, 'pubkey': self._registered_key(counterparty_id)}
         me = {'id': self.participant_id, 'pubkey': self.pubkey}
         now = datetime.now(timezone.utc)
-        return {'protocol': PROTOCOL, 'network': NETWORK, 'tracker_nft_id': info['tracker_nft_id'], 'denomination': info['denomination'],
+        return {'protocol': PROTOCOL, 'network': self.network, 'tracker_nft_id': info['tracker_nft_id'], 'denomination': info['denomination'],
                 'deal_id': deal_id or ('vd_' + secrets.token_hex(8)), 'version': version, 'prior_terms_hash': prior,
                 'nonce': secrets.token_hex(16), 'proposer': self.participant_id,
                 'payer': me if role == 'payer' else other, 'payee': other if role == 'payer' else me,
                 'service': {'title': title, 'description': description, 'deliverable': deliverable},
-                'price': {'amount': int(price), 'unit': UNIT}, 'consideration': 'credit_note_on_delivery_accepted',
+                'price': {'amount': int(price), 'unit': self.unit}, 'consideration': 'credit_note_on_delivery_accepted',
                 'deliver_by': _iso(now + timedelta(hours=deliver_by_hours)), 'offer_expires_at': _iso(now + timedelta(hours=offer_ttl_hours))}
 
     def propose(self, counterparty_id, role, title, description, deliverable, price, deliver_by_hours=48, offer_ttl_hours=24):
@@ -1136,8 +1186,8 @@ class Client:
                 if a['edge'] == pair:
                     shown, mine = a['shown'], a['recorded']
                     return _refused(r, 'ledger_mismatch', (
-                        f"the server shows an older prior credit note to this payee ({shown['total']} PC at {shown['timestamp']}) "
-                        f"than your own record ({mine['total']} PC at {mine['timestamp']}). Ask your operator."))
+                        f"the server shows an older prior credit note to this payee ({shown['total']} {self.unit} at {shown['timestamp']}) "
+                        f"than your own record ({mine['total']} {self.unit} at {mine['timestamp']}). Ask your operator."))
             return None
         r = self._decide(lambda state, edges: nv.evaluate_bound_template(tpl, self._ctx(
             state, now_ms, features, deal=deal, payee_current_pk=payee, edges=edges)), signed_at, refuse=older_prior)
@@ -1284,13 +1334,13 @@ class Client:
             self._confirm_issued(pair, payee, verify, deal_id, d)
         known = self._known_total(pair)
         if known is not None and known != tpl['prior_total']:
-            raise ValunError('ledger_mismatch', f"the server says you have issued this payee {tpl['prior_total']} PC of credit notes so far; your own record says {known}. Ask your operator.")
+            raise ValunError('ledger_mismatch', f"the server says you have issued this payee {tpl['prior_total']} {self.unit} of credit notes so far; your own record says {known}. Ask your operator.")
         for p in self._pending_notes(pair, deal_id):
             # Still pending, so neither its deal nor the edge shows its outcome. If the edge has reached its total, it may
             # have applied (an owner approved it after this client signed): paying the deal again could pay it twice.
             if isinstance(p.get('total'), int) and not isinstance(p['total'], bool) and tpl['prior_total'] >= p['total']:
-                raise ValunError('already_paid', (f"your earlier credit note for this deal ({p['total']} PC in total to this payee) may "
-                                                  f"already be on the tracker: the edge's total is {tpl['prior_total']} PC now. Refusing "
+                raise ValunError('already_paid', (f"your earlier credit note for this deal ({p['total']} {self.unit} in total to this payee) may "
+                                                  f"already be on the tracker: the edge's total is {tpl['prior_total']} {self.unit} now. Refusing "
                                                   'to pay it again. Ask your operator.'))
 
     def _pending_notes(self, pair, deal_id):
@@ -1324,14 +1374,14 @@ class Client:
                 for st, p in found:
                     _guarded(nv.mark_paid, state, p['ref'], 'note', pair, st['total'], st['timestamp'])
             self._update(confirm)
-            self._refuse_paid_again(deal_id, [p for _st, p in found])
+            self._refuse_paid_again(deal_id, [p for _st, p in found], self.unit)
 
     @staticmethod
-    def _refuse_paid_again(deal_id, applied):
+    def _refuse_paid_again(deal_id, applied, unit=UNIT):
         """A note of mine that applied paid its own deal: never sign a second payment for it, whatever the server says."""
         for p in applied:
             if p.get('kind') == 'note' and p.get('ref') == deal_id:
-                raise ValunError('already_paid', (f"your credit note for this deal ({p.get('total')} PC) is already on the tracker, so "
+                raise ValunError('already_paid', (f"your credit note for this deal ({p.get('total')} {unit}) is already on the tracker, so "
                                                   'the deal is paid; refusing to pay it again. Ask your operator.'))
 
     @staticmethod
@@ -1425,7 +1475,7 @@ class Client:
         the deal as paid; a refusal, or payment_due, forgets the pending entry, and the attempt stays until it is dead
         (with the server's id of it, attempt_id, once known). Returns the deal view."""
         if expected_claim_total is not None and not _nat(expected_claim_total):
-            raise ValunError('bad_arguments', 'expected_claim_total is a whole number of PC (the claim your owner saw); '
+            raise ValunError('bad_arguments', f'expected_claim_total is a whole number of {self.unit} (the claim your owner saw); '
                                               'nothing was signed')
         self._secret()
         d = self.deal(deal_id)
@@ -1503,7 +1553,7 @@ class Client:
         def claim_shown(r):
             held = tpl['from_edge']['before']['total']
             if claim is not None and held != claim:
-                return _refused(r, 'stale_claim', f'your claim on this issuer is {held} PC now, not the {claim} PC you reviewed; '
+                return _refused(r, 'stale_claim', f'your claim on this issuer is {held} {self.unit} now, not the {claim} {self.unit} you reviewed; '
                                                   'nothing was signed. Review the payment again.')
             return None
 
@@ -2198,6 +2248,94 @@ class Client:
         recs = _records_in(state)
         for p in pending:
             records.remove_pending(recs, p['pair'], p['total'], p['timestamp'], p['ref'])
+
+    # ---------- settlement on Ergo testnet (the Valun testnet network, valun-testnet-1; valun/ergo.py) ----------
+    # The agent's Ergo address is the P2PK address of its Valun key: its own key signs its own Ergo transactions, the
+    # server never holds it. Signing needs ergo-lib (pip install ergo-lib-python==0.28.0); tERG have no monetary value.
+    def _on_testnet(self):
+        if self.network != 'valun-testnet-1':
+            raise ValunError('not_testnet', 'settlement on Ergo testnet is for the Valun testnet network (valun-testnet-1); '
+                                            f'this profile is on {self.network}')
+        if not self.pubkey:
+            raise ValunError('not_connected', 'this agent has no Valun signing key; the operator must enroll it')
+
+    def ergo_address(self):
+        """This agent's Ergo testnet address (the P2PK address of its Valun key)."""
+        from . import ergo
+        self._on_testnet()
+        return ergo.p2pk_address(self.pubkey)
+
+    def chain(self):
+        """GET /chain: the tracker's anchoring on Ergo testnet and the explorer links."""
+        return self.request('GET', '/pilot/v1/chain', auth=False)
+
+    def reserves(self):
+        """GET /reserves: the Basis reserves the network's tracker sees, with their owners' handles."""
+        return self.request('GET', '/pilot/v1/reserves', auth=False)
+
+    @staticmethod
+    def _ergo_node(chain, node_url=None):
+        from . import ergo
+        url = node_url or (chain or {}).get('node')
+        if not isinstance(url, str) or not url:
+            raise ValunError('not_configured', 'no Ergo testnet node: GET /chain names none; pass node_url')
+        return ergo.Node(url)
+
+    def create_reserve(self, erg_amount, broadcast=False, node_url=None):
+        """Lock `erg_amount` nanoERG (0.01 to 2 tERG) of this agent's own tERG in a Basis reserve: the tracker builds the
+        payment request (POST /reserves/create), this client checks it (ergo.check_reserve_payload), builds and signs the
+        transaction from plain boxes at its own address, and with `broadcast` sends it to the Ergo testnet node. Without
+        `broadcast` nothing leaves this client (the signed transaction is returned for a look first)."""
+        from . import ergo
+        self._on_testnet()
+        chain = self.chain()
+        node = self._ergo_node(chain, node_url)
+        r = ergo.build_reserve(secret_hex=self._secret().hex(), pubkey_hex=self.pubkey, erg_amount=erg_amount, node=node,
+                               tracker_nft_id=chain.get('tracker_nft_id'), reserve_contract=chain.get('reserve_contract'),
+                               payload_for=lambda nft_id: self.request('POST', '/pilot/v1/reserves/create',
+                                                                       {'erg_amount': erg_amount, 'nft_id': nft_id}))
+        explorer = chain.get('explorer')
+        out = {'broadcast': bool(broadcast), 'tx_id': r['tx_id'], 'nft_id': r['nft_id'], 'reserve_box_id': r['reserve_box_id'],
+               'locked_nanoerg': r['locked_nanoerg'], 'address': ergo.p2pk_address(self.pubkey),
+               'explorer': f"{explorer}/en/transactions/{r['tx_id']}" if explorer else None}
+        if not broadcast:
+            return {**out, 'signed': r['signed']}
+        node.broadcast(r['signed'])
+        return out
+
+    def redeem(self, issuer, amount, broadcast=False):
+        """Redeem `amount` nanoERG of the note `issuer` (a participant id or handle) issued to this agent, against the
+        issuer's reserve: the tracker builds the transaction and pays its fee (POST /redemption/build), this client
+        checks it (ergo.check_redemption), adds its own proof for the reserve input, and with `broadcast` submits it
+        (POST /redemption/submit). Without `broadcast` nothing is submitted (the tracker's build lapses)."""
+        from . import ergo
+        self._on_testnet()
+        if not isinstance(issuer, str) or not issuer:
+            raise ValunError('invalid_field', 'issuer: the participant id or handle of the agent whose note you hold')
+        if not isinstance(amount, int) or isinstance(amount, bool) or amount < 1:
+            raise ValunError('invalid_field', 'amount: whole nanoERG to redeem')
+        chain = self.chain()
+        node = self._ergo_node(chain)
+        node.assert_testnet()
+        reserve_tree = ergo.address_to_tree(chain['reserve_contract']) if chain.get('reserve_contract') else None
+        built = self.request('POST', '/pilot/v1/redemption/build', {'issuer': issuer, 'amount': amount})
+        issuer_pubkey = ((built or {}).get('issuer') or {}).get('pubkey')
+        if not isinstance(issuer_pubkey, str):
+            raise ValunError('bad_redemption', 'the server named no issuer key')
+        # The boxes it spends, as the Ergo node reports them (not the tracker's copies).
+        input_boxes = [node.box(i.get('boxId')) for i in ((built or {}).get('unsigned_tx') or {}).get('inputs') or []]
+        checked = ergo.check_redemption(built, issuer_pubkey=issuer_pubkey, recipient_pubkey=self.pubkey, amount=amount,
+                                        tracker_nft_id=chain.get('tracker_nft_id'), reserve_tree=reserve_tree,
+                                        input_boxes=input_boxes)
+        signed = ergo.sign_redemption(built, self._secret().hex())
+        explorer = chain.get('explorer')
+        out = {'broadcast': bool(broadcast), 'tx_id': signed.get('id'), 'issuer': built['issuer'], 'amount': amount,
+               'reserve_box_id': checked['reserve_box_id'], 'address': ergo.p2pk_address(self.pubkey),
+               'explorer': f"{explorer}/en/transactions/{signed['id']}" if explorer and signed.get('id') else None}
+        if not broadcast:
+            return {**out, 'signed': signed}
+        sub = self.request('POST', '/pilot/v1/redemption/submit', {'signed_tx': signed, 'unsigned_tx': built['unsigned_tx']})
+        return {**out, 'tx_id': (sub or {}).get('tx_id') or out['tx_id'], 'explorer': (sub or {}).get('explorer') or out['explorer']}
 
     # ---------- circulating credit: my edges (PROTOCOL.md 18.14; design 6.1, 11) ----------
     def sync_edges(self, now_ms=None):

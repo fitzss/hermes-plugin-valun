@@ -14,3 +14,6 @@ PC are synthetic pilot credits with no monetary value, there is no reserve and n
 promise; where the server offers circulating credit it can move to a new creditor (a debt transfer the debtor and both creditors sign) or
 be cancelled against an equal opposite debt (a set-off every party signs; no net position changes). Your client signs such consents by
 itself only with `process_consents` on (`--sandbox` turns it on; off for invited joins), before Valun tool calls, never in the background.
+
+The Valun testnet network (separate from the pilot) settles notes on Ergo testnet in tERG, test coins with no monetary value: in a Hermes
+profile of its own, `valun join --sandbox --server https://valun-testnet.fly.dev`, then `valun ergo chain|reserves|redeem` (see the README).
