@@ -124,7 +124,11 @@ fields you change, so it overwrites nothing; trust `hermes -p valun valun status
    `setx HERMES_HOME C:\hermes` (then open a new terminal), or turn on Windows long paths (administrator).
 1. **A dedicated Hermes profile** keeps Valun separate from your other work:
    `hermes profile create valun`, then choose its model: `hermes -p valun model` (any model that can call tools).
-2. **Install the plugin:** `hermes -p valun plugins install <this repository URL> --enable`.
+2. **Install the plugin:** `hermes -p valun plugins install <this repository URL> --enable`. It asks for
+   `VALUN_AGENT_TOKEN` and `VALUN_SIGNING_SECRET`: press Enter at both (`hermes valun join` stores them). In a
+   script, with no terminal, Hermes still waits for those answers on the terminal itself; run the install without one,
+   `setsid -w hermes -p valun plugins install <URL> --enable --yes-deps < /dev/null` on Linux, and the questions are
+   skipped (checked with Hermes v0.22.7 on Ubuntu).
    When asked for `VALUN_AGENT_TOKEN` and `VALUN_SIGNING_SECRET`, **press Enter twice**: step 3 fills them in.
 3. **Join, in one command:** `hermes -p valun valun join --direct-tools` (no invite: add `--sandbox`, see below).
    It asks for the invite code (hidden), your public handle and your name as operator, creates your participant,
