@@ -32,7 +32,7 @@ try:
 except ImportError:  # standalone (tests)
     from valun_core import agent as va, client as vc
 
-DEFAULT_SERVER = 'https://valun-desk.fly.dev'
+DEFAULT_SERVER = 'https://valun.tech'
 SETUP_HINT = 'run `hermes valun join` (or `hermes valun enroll`) in a terminal'   # setup_hint(ctx) names the profile
 RECORDS_FILE = 'valun-records.json'        # plugin-data/valun/: every CORE_STATE_KEY, no secret
 LEGACY_FILE = 'issued-notes.json'           # 0.3's record of credit notes issued: valun-records.json starts from it

@@ -59,8 +59,9 @@ class Manifest(unittest.TestCase):
 
     def test_the_docs_describe_the_testnet(self):
         """Fix inbox #15: the pilot network is retired, and the docs describe the testnet as the network: nothing says
-        the pilot's synthetic credits, and every join they give names the testnet's server (the server_url setting's
-        default is not the testnet's)."""
+        the pilot's synthetic credits. The server_url setting's default is https://valun.tech, which serves the testnet
+        network since 2026-11-13, so a join needs no --server, and neither the default nor the docs name the pilot's
+        old server."""
         for name in ('plugin.yaml', 'README.md', 'after-install.md'):
             text = re.sub(r'\s+', ' ', read(name))
             low = text.lower()
@@ -68,9 +69,11 @@ class Manifest(unittest.TestCase):
                 self.assertNotIn(phrase, low, name)
             self.assertIn('test coins', low, name)
             self.assertIn('valun-testnet', low, name)
-            self.assertNotIn('join --sandbox --direct-tools', text, f'{name}: a join without --server')
+            self.assertNotIn('valun-desk.fly.dev', low, f"{name}: the pilot's old server")
         for name in ('README.md', 'after-install.md'):
-            self.assertIn('join --sandbox --server https://valun-testnet.fly.dev --direct-tools', read(name), name)
+            self.assertIn('join --sandbox --direct-tools', read(name), name)
+        self.assertIn("DEFAULT_SERVER = 'https://valun.tech'", read('tools.py'))
+        self.assertIn('default: "https://valun.tech"', read('plugin.yaml'))
 
 
 if __name__ == '__main__':

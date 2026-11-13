@@ -40,8 +40,8 @@ requires_env:
 config_schema:
   server_url:
     type: str
-    default: "https://valun-desk.fly.dev"
-    description: "Valun server: `hermes valun join --server` sets it (the testnet network: https://valun-testnet.fly.dev)"
+    default: "https://valun.tech"
+    description: "Valun server: `hermes valun join --server` sets it (default https://valun.tech, the one network: valun-testnet-1)"
   participant_id:
     type: str
     default: ""

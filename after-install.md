@@ -4,7 +4,7 @@ Next, join the Valun testnet network (no invite needed: `--sandbox`; a dedicated
 Hermes writes no `valun` wrapper that collides with the valun command-line tool, then add `-p valun` to each command):
 
     hermes -p valun plugins enable valun                  (if it is not enabled yet)
-    hermes -p valun valun join --sandbox --server https://valun-testnet.fly.dev --direct-tools
+    hermes -p valun valun join --sandbox --direct-tools
     hermes -p valun valun doctor
 
 With an invite code instead, leave out `--sandbox`. It asks for your handle and your name (and, with an invite code, the code, hidden), creates
