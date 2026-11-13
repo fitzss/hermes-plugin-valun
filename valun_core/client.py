@@ -80,6 +80,10 @@ RESERVED_MS_FROM = 995
 # Guarantees (servers listing guarantees/1; fix inbox #18): the terms protocol and the one kind of cover it has.
 GUARANTEE_PROTOCOL = 'valun-guarantee/1'
 GUARANTEE_COVERS = 'issuer_debt_to_creditor'
+# The deal mode (fix inbox #29): the terms name the deals they back (terms.deals) and cover only what is unpaid of them.
+GUARANTEE_COVERS_DEALS = 'issuer_payment_for_deals'
+GUARANTEE_MAX_DEALS = 10
+_DEAL_ID_RE = re.compile(r'vd_[0-9a-f]{16}')
 GUARANTEE_HONORS_KEY = 'guarantee_honors'    # state[...][guarantee_id] = {cap, calls: {call_id: {amount, state, total, timestamp}}}
 # Circulating credit (PROTOCOL.md 18; design 4.1, 6.3, 6.6, 11).
 FEATURES_HEADER = 'X-Valun-Features'          # 'consents/1;roles=<roles>', sent once /info lists circulation/1
@@ -171,12 +175,43 @@ def terms_hash(terms) -> str:
     return sha256_hex(canonical(terms))
 
 
+def _check_deal_ids(deals, code):
+    """The deals a guarantee names (fix inbox #29): 1 to GUARANTEE_MAX_DEALS different deal ids."""
+    if (not isinstance(deals, list) or not 1 <= len(deals) <= GUARANTEE_MAX_DEALS or len(set(deals)) != len(deals)
+            or not all(isinstance(d, str) and _DEAL_ID_RE.fullmatch(d) for d in deals)):
+        raise ValunError(code, f'deals must be 1 to {GUARANTEE_MAX_DEALS} different deal ids (vd_ + 16 hex)')
+
+
 def statement(kind, *parts) -> str:
     return '\n'.join([f'valun-pilot/{kind}/1', *parts])
 
 
 def _iso(dt) -> str:
     return dt.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+
+
+# How long a counter-offer stays open by default, at most (fix inbox #23): never past its own delivery deadline, nor past
+# the end of the offer it answers (Client.counter).
+COUNTER_OFFER_HOURS = 24
+
+
+def _price_amount(price, unit=UNIT):
+    """A price as it is signed: a whole number of at least 1, or a string of its decimal digits (as the JavaScript client
+    takes it). Never truncated or rounded (fix inbox #22: 1.5 was signed as 1): anything else is refused (bad_price)."""
+    n = int(price) if isinstance(price, str) and len(price) < 100 and re.fullmatch(r'[0-9]+', price) else price
+    if isinstance(n, int) and not isinstance(n, bool) and 1 <= n <= nv.MAX_SAFE_INTEGER:
+        return n
+    raise ValunError('bad_price', f'price must be a whole number of {unit}, at least 1')
+
+
+def check_offer_hours(offer_hours, deliver_hours):
+    """Refuse (bad_arguments, fix inbox #23), before anything is signed, an offer that would stay open longer than the
+    hours it gives to deliver: it could be accepted after its work is due, and the server refuses such terms
+    (deliver_by must not be earlier than offer_expires_at)."""
+    if offer_hours > deliver_hours:
+        raise ValunError('bad_arguments', (f'the offer would stay open {offer_hours} h, longer than the {deliver_hours} h it '
+                                           'gives to deliver: it could be accepted after its work is due, which the server '
+                                           f'refuses. Pass offer_valid_hours of at most {deliver_hours}; nothing was signed'))
 
 
 def _records_in(state, create=True):
@@ -1021,8 +1056,12 @@ class Client:
         if t.get('tracker_nft_id') != info['tracker_nft_id'] or t.get('denomination') != info['denomination']:
             raise ValunError('wrong_tracker', 'the guarantee names a different tracker or unit than this network')
         cap = t.get('cap') if isinstance(t.get('cap'), dict) else {}
-        if t.get('covers') != GUARANTEE_COVERS or not (_nat(cap.get('amount')) and cap['amount'] > 0) or cap.get('unit') != self.unit:
-            raise ValunError('bad_terms', 'the guarantee does not cover issuer_debt_to_creditor up to a whole cap in this network\'s unit')
+        if t.get('covers') not in (GUARANTEE_COVERS, GUARANTEE_COVERS_DEALS) or not (_nat(cap.get('amount')) and cap['amount'] > 0) or cap.get('unit') != self.unit:
+            raise ValunError('bad_terms', 'the guarantee does not cover issuer_debt_to_creditor or issuer_payment_for_deals up to a whole cap in this network\'s unit')
+        if t.get('covers') == GUARANTEE_COVERS_DEALS:
+            _check_deal_ids(t.get('deals'), 'bad_terms')
+        elif 'deals' in t:
+            raise ValunError('bad_terms', 'the guarantee names deals but does not cover issuer_payment_for_deals')
         parties = {r: t.get(r) for r in ('backer', 'issuer', 'creditor')}
         if not all(isinstance(x, dict) and isinstance(x.get('id'), str) and _is_pubkey(x.get('pubkey')) for x in parties.values()):
             raise ValunError('bad_terms', 'the guarantee must name a backer, an issuer and a creditor, each with its key')
@@ -1040,10 +1079,13 @@ class Client:
         return {'terms_hash': h, 'terms': t, 'role': r}
 
     def build_guarantee_terms(self, issuer_id, creditor_id, cap, due_in_hours, callable_for_hours=168, honor_within_hours=24,
-                              offer_valid_hours=24, note=''):
+                              offer_valid_hours=24, note='', deals=None):
         """The terms of a guarantee this agent offers as backer: the issuer's and the creditor's registered keys, the cap
         in this network's unit, callable from due_in_hours from now for callable_for_hours, honored within
-        honor_within_hours, open for offer_valid_hours (never past the expiry)."""
+        honor_within_hours, open for offer_valid_hours (never past the expiry). With `deals` (1 to 10 deal ids, in which
+        the issuer pays the creditor), it covers only what is unpaid of those deals (fix inbox #29)."""
+        if deals is not None:
+            _check_deal_ids(deals, 'bad_arguments')
         for name, v, lo, hi in (('cap', cap, 1, None), ('due_in_hours', due_in_hours, 0, 1440), ('callable_for_hours', callable_for_hours, 1, 1440),
                                 ('honor_within_hours', honor_within_hours, 1, 168), ('offer_valid_hours', offer_valid_hours, 1, 168)):
             if not _nat(v) or v < lo or (hi is not None and v > hi):
@@ -1061,16 +1103,17 @@ class Client:
                 'backer': {'id': self.participant_id, 'pubkey': self.pubkey},
                 'issuer': {'id': issuer_id, 'pubkey': self._registered_key(issuer_id)},
                 'creditor': {'id': creditor_id, 'pubkey': self._registered_key(creditor_id)},
-                'cap': {'amount': int(cap), 'unit': self.unit}, 'covers': GUARANTEE_COVERS,
+                'cap': {'amount': int(cap), 'unit': self.unit}, 'covers': GUARANTEE_COVERS_DEALS if deals is not None else GUARANTEE_COVERS,
+                **({'deals': list(deals)} if deals is not None else {}),
                 'due_at': _iso(due), 'expires_at': _iso(expires), 'honor_within_hours': int(honor_within_hours),
                 'offer_expires_at': _iso(min(now + timedelta(hours=offer_valid_hours), expires)), 'note': note}
 
     def offer_guarantee(self, issuer_id, creditor_id, cap, due_in_hours, callable_for_hours=168, honor_within_hours=24,
-                        offer_valid_hours=24, note=''):
+                        offer_valid_hours=24, note='', deals=None):
         """Offer a guarantee as its backer (build_guarantee_terms), signed with statement guarantee-offer."""
         self._guarantees_offered()
         t = self.build_guarantee_terms(issuer_id, creditor_id, cap, due_in_hours, callable_for_hours, honor_within_hours,
-                                       offer_valid_hours, note)
+                                       offer_valid_hours, note, deals)
         h = terms_hash(t)
         return self.request('POST', '/pilot/v1/guarantees', {'terms': t, 'terms_hash': h, 'signature': self._sign(statement('guarantee-offer', h))})
 
@@ -1299,31 +1342,56 @@ class Client:
 
     # ---------- acts (all signed locally) ----------
     def build_terms(self, counterparty_id, role, title, description, deliverable, price, deliver_by_hours=48,
-                    offer_ttl_hours=24, deal_id=None, version=1, prior=None):
+                    offer_ttl_hours=24, deal_id=None, version=1, prior=None, prior_expires_at=None):
+        """valun-deal/1 terms for a new proposal (or, with deal_id, version and prior, a counter-offer); signs nothing.
+        The price is a whole number of this network's unit, at least 1 (bad_price; never truncated). Delivery is due
+        deliver_by_hours from now; the offer stays open offer_ttl_hours, or, with offer_ttl_hours None,
+        COUNTER_OFFER_HOURS but never past deliver_by nor past prior_expires_at (an ISO time: the end of the offer a
+        counter-offer answers). Times are whole seconds, rounded down. Terms the server would refuse for their times are
+        refused here first (bad_arguments, fix inbox #23): an offer open longer than the hours it gives to deliver
+        (check_offer_hours), or one that would already have expired when it is sent."""
         if role not in ('payer', 'payee'):
             raise ValunError('bad_role', 'role must be payer (you pay with your credit) or payee (you do the work)')
+        amount = _price_amount(price, self.unit)
+        if offer_ttl_hours is not None:
+            check_offer_hours(offer_ttl_hours, deliver_by_hours)
         info = self.info()
         other = {'id': counterparty_id, 'pubkey': self._registered_key(counterparty_id)}
         me = {'id': self.participant_id, 'pubkey': self.pubkey}
         now = datetime.now(timezone.utc)
+        deliver_by = now + timedelta(hours=deliver_by_hours)
+        if offer_ttl_hours is None:
+            ends = [now + timedelta(hours=COUNTER_OFFER_HOURS), deliver_by]
+            if prior_expires_at is not None:
+                ends.append(datetime.fromisoformat(prior_expires_at.replace('Z', '+00:00')))
+            expires = _iso(min(ends))
+        else:
+            expires = _iso(now + timedelta(hours=offer_ttl_hours))
+        if not datetime.fromisoformat(expires.replace('Z', '+00:00')) > now:
+            raise ValunError('bad_arguments', (f'the offer would expire at {expires}, before it is sent: it must stay open '
+                                               'for at least 1 h (offer_valid_hours); nothing was signed'))
         return {'protocol': PROTOCOL, 'network': self.network, 'tracker_nft_id': info['tracker_nft_id'], 'denomination': info['denomination'],
                 'deal_id': deal_id or ('vd_' + secrets.token_hex(8)), 'version': version, 'prior_terms_hash': prior,
                 'nonce': secrets.token_hex(16), 'proposer': self.participant_id,
                 'payer': me if role == 'payer' else other, 'payee': other if role == 'payer' else me,
                 'service': {'title': title, 'description': description, 'deliverable': deliverable},
-                'price': {'amount': int(price), 'unit': self.unit}, 'consideration': 'credit_note_on_delivery_accepted',
-                'deliver_by': _iso(now + timedelta(hours=deliver_by_hours)), 'offer_expires_at': _iso(now + timedelta(hours=offer_ttl_hours))}
+                'price': {'amount': amount, 'unit': self.unit}, 'consideration': 'credit_note_on_delivery_accepted',
+                'deliver_by': _iso(deliver_by), 'offer_expires_at': expires}
 
     def propose(self, counterparty_id, role, title, description, deliverable, price, deliver_by_hours=48, offer_ttl_hours=24):
         t = self.build_terms(counterparty_id, role, title, description, deliverable, price, deliver_by_hours, offer_ttl_hours)
         h = terms_hash(t)
         return self.request('POST', '/pilot/v1/deals', {'terms': t, 'terms_hash': h, 'signature': self._sign(statement('propose', h))})
 
-    def counter(self, deal_id, price=None, title=None, description=None, deliverable=None, deliver_by_hours=None, offer_ttl_hours=24,
+    def counter(self, deal_id, price=None, title=None, description=None, deliverable=None, deliver_by_hours=None, offer_ttl_hours=None,
                 expected_terms_hash=None):
         """Sign a counter-offer: the given changes, the rest copied from the current offer. With expected_terms_hash
         (the hash of the offer the owner or agent inspected), refuses (stale_terms) if the current offer is another.
-        The new version follows the version inside the verified (hashed) terms, not the server's view of the deal."""
+        The new version follows the version inside the verified (hashed) terms, not the server's view of the deal.
+        Delivery is due deliver_by_hours from now, by default by the current offer's deadline (rounded down to the hour,
+        at least 1 h from now). The counter-offer stays open offer_ttl_hours; by default (fix inbox #23)
+        COUNTER_OFFER_HOURS, but never past its own delivery deadline nor past the end of the offer it answers, so a
+        price-only counter to an offer due within a day is valid terms too."""
         d = self.deal(deal_id)
         chk = self.verify_offer(d)
         if expected_terms_hash and expected_terms_hash != chk['terms_hash']:
@@ -1334,7 +1402,8 @@ class Client:
         due_h = deliver_by_hours if deliver_by_hours is not None else max(1, int((datetime.fromisoformat(t0['deliver_by'].replace('Z', '+00:00')) - datetime.now(timezone.utc)).total_seconds() // 3600))
         t = self.build_terms(other, role, title or t0['service']['title'], description or t0['service']['description'],
                              deliverable or t0['service']['deliverable'], price if price is not None else t0['price']['amount'],
-                             due_h, offer_ttl_hours, deal_id=deal_id, version=t0['version'] + 1, prior=chk['terms_hash'])
+                             due_h, offer_ttl_hours, deal_id=deal_id, version=t0['version'] + 1, prior=chk['terms_hash'],
+                             prior_expires_at=t0['offer_expires_at'])
         h = terms_hash(t)
         return self.request('POST', f'/pilot/v1/deals/{deal_id}/counter', {'terms': t, 'terms_hash': h, 'signature': self._sign(statement('propose', h))})
 

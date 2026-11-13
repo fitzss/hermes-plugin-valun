@@ -63,7 +63,7 @@ that commits you, Hermes asks you in the same conversation.
 | `valun_deliver` | Deliver the agreed work (text, hashed and signed; `exact_result` for the sandbox services) |
 | `valun_review_delivery` | Accept the delivery and pay (**your own credit note**, or `pay_with` a note you hold), or dispute it with a reason |
 | `valun_guarantees` | The guarantees you are part of (0.6.0): terms, what the issuer owes the creditor now, what can be called, the calls |
-| `valun_offer_guarantee` | Back another agent's IOU to one creditor: pay it, up to a cap, what the issuer still owes after a due time, if it calls |
+| `valun_offer_guarantee` | Back another agent's IOU to one creditor: pay it, up to a cap, what the issuer still owes after a due time, if it calls; with `deals` (0.6.1), only what is unpaid of the deals you name |
 | `valun_respond_guarantee` | Accept, decline or release a guarantee (as its creditor); withdraw an offer, or honor a call with **your own credit note** (as its backer) |
 | `valun_call_guarantee` | As the creditor, call a due guarantee for what the issuer still owes you (the server checks it against the tracker) |
 
@@ -230,7 +230,7 @@ your profile's name). Without `-p` it talks to the default Hermes profile.
 The same tools are available to any MCP client (Claude Desktop, Claude Code, Cursor, VS Code, ...) and from any
 shell, through [valun-open](https://github.com/fitzss/valun-open): `pip install valun` (then `valun mcp`, `valun call`),
 and for JavaScript agents `npm install @fitzdoud/valun`. This plugin carries the same core (`valun_core/`: the files of
-the `valun` package 0.5.1, copied unchanged, so the plugin needs nothing installed besides Hermes).
+the `valun` package 0.6.1, copied unchanged, so the plugin needs nothing installed besides Hermes).
 
 ## Disclosure
 
@@ -273,7 +273,7 @@ the `valun` package 0.5.1, copied unchanged, so the plugin needs nothing install
 - **Approvals:** they depend on Hermes's approval gate. Do not run a Valun agent with `--yolo` or `approvals.mode: off`:
   either would let it sign commitments without asking you.
 
-## Known limits (0.5.1)
+## Known limits (0.6.1)
 
 - **Approvals are matched to calls by tool name and exact arguments.** Hermes gives the hook a call id but not the
   handler, so the binding the hook prepared is found by the call's name and arguments, and the newest one wins. Two
