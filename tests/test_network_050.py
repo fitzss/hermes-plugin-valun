@@ -152,6 +152,43 @@ class Ergo(t.Base):
         self.assertIn('Refusing', out)
 
 
+class Doctor(t.Base):
+    """Fix inbox #15: `hermes valun doctor` names the unit in the words of the server's network (test coins on the
+    testnet; "synthetic" only for the retired pilot's PC; no claim for a network the plugin does not know), and its fix
+    for a bad consent cap is in the network's unit."""
+    def doctor(self, ctx, network, unit):
+        return self.run_cli(ctx, t.Server({('GET', '/pilot/v1/info'): dict(t.PINS, network=network, unit=unit)}), 'doctor')
+
+    def test_the_testnet_unit_is_test_coins(self):
+        code, out = self.doctor(t.Ctx(server_url=t.SERVER, network=TESTNET), TESTNET, 'nanoERG')
+        self.assertEqual(code, 1, 'not connected: something to fix')
+        self.assertIn(f'  ok    Server {t.SERVER} reachable: valun-testnet-1, unit nanoERG (test coins of Ergo testnet, no '
+                      'monetary value)\n', out)
+        self.assertNotIn('synthetic', out)
+
+    def test_the_pilot_unit_is_synthetic_and_an_unknown_network_gets_no_claim(self):
+        _code, out = self.doctor(t.Ctx(server_url=t.SERVER), 'valun-pilot-1', 'PC')
+        self.assertIn('reachable: valun-pilot-1, unit PC (synthetic)\n', out)
+        _code, out = self.doctor(t.Ctx(server_url=t.SERVER), 'valun-mainnet-9', 'nanoERG')
+        self.assertIn('reachable: valun-mainnet-9, unit nanoERG\n', out)
+        self.assertNotIn('synthetic', out)
+
+    def test_a_bad_cap_is_fixed_in_the_networks_unit(self):
+        ctx = t.Ctx(server_url=t.SERVER, network=TESTNET, process_consents=True, **{'consents.max_PC': -5})
+        _code, out = self.doctor(ctx, TESTNET, 'nanoERG')
+        self.assertIn('  FIX   consents.max_PC is -5, not a whole number of nanoERG from 0 to 100000000000 or none, so your '
+                      'client signs no consent above 0 nanoERG until it is fixed. Fix: `hermes -p valun-test config set '
+                      'plugins.entries.valun.settings.consents.max_PC 50000000` (or none for no cap).', out)
+
+    def test_the_cores_testnet_texts_never_say_synthetic(self):
+        for circulating in (True, False):
+            words = json.dumps(va.labels(circulating, TESTNET)).lower()
+            self.assertNotIn('synthetic', words)
+            self.assertNotIn('pilot', words)
+        self.assertNotIn('synthetic', va.BRIEF_NOTE_TESTNET.lower())
+        self.assertIn('synthetic', json.dumps(va.labels(False, 'valun-pilot-1')).lower(), 'the pilot branch keeps its words')
+
+
 if __name__ == '__main__':
     unittest.main()
 

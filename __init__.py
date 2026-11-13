@@ -261,11 +261,18 @@ def _consents_line(ctx, store):
 
 
 def _cap_problem(ctx):
-    """What is wrong with the consents.max_PC setting, with the fix; None when nothing is."""
+    """What is wrong with the consents.max_PC setting, with the fix (the default cap, PC-sized: in the network's unit);
+    None when nothing is."""
     _cap, problem = tools.consent_cap(ctx)
     if problem is None:
         return None
-    return f'{problem}. Fix: `{_setting_cmd(ctx, "consents.max_PC", tools.CONSENT_MAX_PC)}` (or none for no cap).'
+    cap = tools.CONSENT_MAX_PC * tools.scale(ctx)
+    return f'{problem}. Fix: `{_setting_cmd(ctx, "consents.max_PC", cap)}` (or none for no cap).'
+
+
+# What a network's unit is, in doctor's words (as `valun doctor` says it; fix inbox #15): the testnet's are test coins;
+# "synthetic" only for the retired pilot's PC. A network this plugin does not know gets no claim.
+UNIT_KINDS = {schemas.TESTNET: 'test coins of Ergo testnet, no monetary value', 'valun-pilot-1': 'synthetic'}
 
 
 def _doctor(ctx):
@@ -295,7 +302,8 @@ def _doctor(ctx):
                         f'`{_hermes(ctx, "join")}` (with an invite) or `{_hermes(ctx, "enroll")}` (with an enrollment code).')
     try:
         info = vc.Client(_MemoryStore(), server).request('GET', '/pilot/v1/info', auth=False)
-        ok.append(f"Server {server} reachable: {info['network']}, unit {info['unit']} (synthetic)")
+        kind = UNIT_KINDS.get(info['network'])
+        ok.append(f"Server {server} reachable: {info['network']}, unit {info['unit']}" + (f' ({kind})' if kind else ''))
     except Exception as e:  # noqa: BLE001
         problems.append(f'Server {server} not reachable ({e}). Check the server_url setting and your connection.')
     store = tools.HermesStore(ctx)

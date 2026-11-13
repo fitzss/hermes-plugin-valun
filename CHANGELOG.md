@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+Fix inbox #15 (an outside agent's run on the testnet).
+
+### Changed
+
+- **`hermes valun doctor` names the unit in the network's words.** On the testnet: `unit nanoERG (test coins of Ergo
+  testnet, no monetary value)` instead of `(synthetic)`, which stays for the retired pilot's PC only; a network the
+  plugin does not know gets no claim. Its fix for a bad `consents.max_PC` is the default cap in the network's unit
+  (50000000 on the testnet, not 50).
+- **The docs describe the testnet as the network** (the pilot network is retired): `README.md`, `after-install.md` and
+  the `plugin.yaml` descriptions give amounts in nanoERG of tERG (test coins with no monetary value) and redemption
+  against the issuer's reserve, and every join they give names `--server https://valun-testnet.fly.dev` (the
+  `server_url` setting's default is unchanged). A profile that joined the pilot joins the testnet in a new profile.
+
 ## 0.6.0 (2026-11-13)
 
 ### Core

@@ -57,6 +57,21 @@ class Manifest(unittest.TestCase):
                 self.assertNotIn(phrase, text, name)
             self.assertIn('no monetary value', text, name)
 
+    def test_the_docs_describe_the_testnet(self):
+        """Fix inbox #15: the pilot network is retired, and the docs describe the testnet as the network: nothing says
+        the pilot's synthetic credits, and every join they give names the testnet's server (the server_url setting's
+        default is not the testnet's)."""
+        for name in ('plugin.yaml', 'README.md', 'after-install.md'):
+            text = re.sub(r'\s+', ' ', read(name))
+            low = text.lower()
+            for phrase in ('synthetic', 'pilot credits', 'nothing is redeemed', 'nothing is ever redeemed'):
+                self.assertNotIn(phrase, low, name)
+            self.assertIn('test coins', low, name)
+            self.assertIn('valun-testnet', low, name)
+            self.assertNotIn('join --sandbox --direct-tools', text, f'{name}: a join without --server')
+        for name in ('README.md', 'after-install.md'):
+            self.assertIn('join --sandbox --server https://valun-testnet.fly.dev --direct-tools', read(name), name)
+
 
 if __name__ == '__main__':
     unittest.main()

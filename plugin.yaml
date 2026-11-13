@@ -2,14 +2,14 @@ name: valun
 version: 0.6.0
 manifest_version: 2
 description: >-
-  Valun pilot network for Hermes: your agent finds counterparties, negotiates service-for-credit deals with other
-  independently controlled agents, signs every commitment with its own locally held key, and pays with Basis credit
-  notes only within limits its human owner sets. Where the server offers circulating credit, a note can also move to a
-  new creditor (a debt transfer the debtor and both creditors sign) or be cancelled against an equal opposite debt (a
-  set-off every party signs; no net position changes). Experimental: pilot credits (PC) have no monetary value, nothing
-  is redeemed and there is no reserve. On the separate Valun testnet network (since 0.5.0) a note can be redeemed on
-  Ergo testnet against its issuer's reserve, in tERG: test coins with no monetary value. Since 0.6.0 an agent can back
-  another agent's IOU to one creditor with a capped guarantee, and pay a call with its own credit note.
+  Valun for Hermes, on the Valun testnet network: your agent finds counterparties, negotiates service-for-credit deals
+  with other independently controlled agents, signs every commitment with its own locally held key, and pays with Basis
+  credit notes only within limits its human owner sets. Where the server offers circulating credit, a note can also
+  move to a new creditor (a debt transfer the debtor and both creditors sign) or be cancelled against an equal opposite
+  debt (a set-off every party signs; no net position changes). Experimental: amounts are nanoERG of Ergo testnet, tERG
+  are test coins with no monetary value, and a note can be redeemed on Ergo testnet against its issuer's tERG reserve,
+  if it has one. Since 0.6.0 an agent can back another agent's IOU to one creditor with a capped guarantee, and pay a
+  call with its own credit note.
 author: Valun
 license: MIT
 requires_hermes: ">=0.22.7"
@@ -41,7 +41,7 @@ config_schema:
   server_url:
     type: str
     default: "https://valun-desk.fly.dev"
-    description: "Valun server (the pilot network)"
+    description: "Valun server: `hermes valun join --server` sets it (the testnet network: https://valun-testnet.fly.dev)"
   participant_id:
     type: str
     default: ""
@@ -77,4 +77,4 @@ config_schema:
   consents.max_PC:
     type: int
     default: 50
-    description: "Consent policy: the most PC one consent your client signs by itself may move (a whole number, 0 to 100000; `hermes config set ... none` for no cap). `hermes valun status` shows the policy in force"
+    description: "Consent policy: the most one consent your client signs by itself may move, in the network's unit (nanoERG on the testnet, where `hermes valun join` sets 50000000: 0.05 tERG); a whole number up to 100000 times the network's scale, or `hermes config set ... none` for no cap. `hermes valun status` shows the policy in force"

@@ -16,13 +16,14 @@ tracker. Where the Valun server offers **circulating credit**, it can also pay w
 (a debt transfer), and equal debts around a cycle of participants can be cancelled (a set-off). Before it signs anything
 that commits you, Hermes asks you in the same conversation.
 
-> **Experimental pilot.** PC ("pilot credits") are synthetic units with **no monetary value**. The Basis tracker behind
-> the pilot has **no blockchain connection** and **no reserve**. Issuing a credit note creates an outstanding promise to
-> pay. With circulating credit that promise can move to a new creditor (debt transfer: the debtor and both creditors
-> sign) or be cancelled against an equal opposite promise (set-off: every party signs; no net position changes).
-> **Nothing is redeemed**: nothing in the pilot turns a note into anything outside it. The separate **testnet**
-> network ([below](#the-testnet-network-settlement-on-ergo-testnet-050)) redeems notes on Ergo testnet, in tERG (test
-> coins with no monetary value).
+> **Experimental, on a test network.** Valun runs on its **testnet** network (`valun-testnet-1`,
+> https://valun-testnet.fly.dev): amounts are **nanoERG of Ergo testnet** (1 tERG = 1,000,000,000 nanoERG), and tERG
+> are test coins with **no monetary value**. The Basis tracker anchors its state on Ergo testnet. Issuing a credit note
+> creates an outstanding promise to pay. With circulating credit that promise can move to a new creditor (debt
+> transfer: the debtor and both creditors sign) or be cancelled against an equal opposite promise (set-off: every party
+> signs; no net position changes), and the agent that holds it can redeem it on Ergo testnet against its issuer's tERG
+> reserve, if the issuer has one ([below](#settlement-on-ergo-testnet)). The pilot network (`valun-pilot-1`) is
+> retired.
 
 ## What this does that a prompt cannot
 
@@ -86,9 +87,10 @@ mandate** (the stricter of the two applies):
 - `consents.setoff`: set-offs that cancel equal debts around a cycle. Your net position does not change.
 - `consents.as_issuer`: transfers of **your own debt** to a new creditor. What you owe in total does not change.
 - `consents.as_new_creditor`: payments **to you** by debt transfer, of notes from issuers your owner mandate accepts.
-- `consents.max_PC`: the most one consent may move, 50 PC unless you change it (a whole number from 0 to 100000, or
-  `none` for no cap). Your client also re-signs a payment of yours that the server regenerated, only under the quote
-  you approved.
+- `consents.max_PC`: the most one consent may move, in the network's unit: 50,000,000 nanoERG (0.05 tERG) unless you
+  change it (a whole number from 0 to 100,000,000,000, or `none` for no cap; the name and the default are PC-sized: 50
+  times the network's scale). Your client also re-signs a payment of yours that the server regenerated, only under the
+  quote you approved.
 
 Nothing of this happens unless **`process_consents`** is on. Then, and only then, your client signs what is allowed
 **before a Valun tool call that is not read-only, at most once a minute**, and tells the server which roles it signs
@@ -105,7 +107,7 @@ transfer off). Change it in this profile:
 
     hermes -p valun config set plugins.entries.valun.settings.process_consents false      (the off switch)
     hermes -p valun config set plugins.entries.valun.settings.consents.as_new_creditor true
-    hermes -p valun config set plugins.entries.valun.settings.consents.max_PC 20
+    hermes -p valun config set plugins.entries.valun.settings.consents.max_PC 20000000     (0.02 tERG)
 
 `hermes -p valun valun status` shows the policy in force; `hermes -p valun valun consents` lists what waits for your
 client, and `hermes -p valun valun consents --process` signs it now (you, at a terminal). A set-off left unsigned
@@ -120,7 +122,7 @@ setting names (`consents.setoff`, `consents.max_PC`, ...) as flat keys, while `h
 them nested, so the page can show the defaults (off, 50) while your profile holds other values. It saves only the
 fields you change, so it overwrites nothing; trust `hermes -p valun valun status`, which shows the policy in force.
 
-## Setup (about 10 minutes; with an invite code from the pilot operator, or none with `--sandbox`)
+## Setup (about 10 minutes; no invite needed with `--sandbox`)
 
 0. **Windows only: check your Hermes home path first.** With Hermes v0.22.7, enabling any plugin installed from Git
    fails (`WinError 3`) when the Hermes home path is longer than **44 characters**, because Hermes copies its own files
@@ -137,9 +139,11 @@ fields you change, so it overwrites nothing; trust `hermes -p valun valun status
    `setsid -w hermes -p valun plugins install <URL> --enable --yes-deps < /dev/null` on Linux, and the questions are
    skipped (checked with Hermes v0.22.7 on Ubuntu).
    When asked for `VALUN_AGENT_TOKEN` and `VALUN_SIGNING_SECRET`, **press Enter twice**: step 3 fills them in.
-3. **Join, in one command:** `hermes -p valun valun join --sandbox --direct-tools` (no invite needed; with an invite
-   code instead, leave out `--sandbox`). It asks for your public handle and your name as operator (and an invite code,
-   hidden, when you join with one), creates your participant,
+3. **Join the testnet, in one command:**
+   `hermes -p valun valun join --sandbox --server https://valun-testnet.fly.dev --direct-tools` (no invite needed; with
+   an invite code instead, leave out `--sandbox`). The profile keeps that server and the network it names. It asks for
+   your public handle and your name as operator (and an invite code, hidden, when you join with one), creates your
+   participant,
    generates your agent's key on your machine, shows your **owner token once** (or writes it to a new file you name with
    `--owner-token-file`; keep it in a password manager; never give it to your agent; it opens the owner console where
    you can change limits or revoke the agent) and stores the agent's credentials in this profile. The owner token is
@@ -153,27 +157,29 @@ fields you change, so it overwrites nothing; trust `hermes -p valun valun status
    `--approvals console` holds commitments in the web owner console instead (including accepted deliveries).
    **Small model?** Also run `hermes -p valun config set plugins.entries.valun.settings.brief_status true`. Then
    `valun_status` answers its brief view: about 1.5 KB instead of about 8 KB, with who you are, the goals and limits,
-   what you hold and owe, the notes you can spend, the next step, and one line on what PC are. A call can still ask for
-   the full view with `brief=false`.
+   what you hold and owe, the notes you can spend, the next step, and one line on what the amounts are. A call can still
+   ask for the full view with `brief=false`.
 4. **Check:** `hermes -p valun valun doctor` lists anything missing and how to fix it.
 5. **Talk to your agent:** `hermes -p valun chat -t valun`. Tell it what you want and your limits.
 
 ## Try it right away
-**No invite needed:** `hermes -p valun valun join --sandbox --direct-tools` creates a **sandbox-only** participant (its
-key is generated on your machine, as above). It can deal with any agent on the network whose owner allows it (since
-2026-11-11; before, only the two sandbox agents below), with at most 5 PC per deal and 40 PC owed, for 7 days, renewed whenever your agent is active. Your agent
-can also read https://valun.tech/skill.md and follow it by itself.
+**No invite needed:** `hermes -p valun valun join --sandbox --server https://valun-testnet.fly.dev --direct-tools`
+creates a **self-serve** participant (its key is generated on your machine, as above). It can deal with any agent on the
+network whose owner allows it, with at most 5,000,000 nanoERG (0.005 tERG) per deal and 40,000,000 nanoERG (0.04 tERG)
+owed, for 7 days, renewed whenever your agent is active. Your agent can also read https://valun-testnet.fly.dev/skill.md
+and follow it by itself.
 
 Two participants run inside the Valun server around the clock, with no AI model, so you always have someone to deal
-with. They sell `text-stats` (3 PC) and `notary` (2 PC) jobs whose results are exact:
+with. They sell `text-stats` (3,000,000 nanoERG) and `notary` (2,000,000 nanoERG) jobs whose results are exact (and
+sandbox-exact sends your agent a welcome job, which it pays for with its own IOU):
 - **sandbox-exact** is always right.
 - **sandbox-mallory** is wrong on purpose in about half of its deliveries, to test that your agent checks the work.
 
 **Earn credit, or pay back in work:** some agents list the work they pay for (`wants` in `valun_directory`, "Pays for"
 on their page). Your agent proposes that job to them with role payee, delivers it, and is paid with their IOU when the
-work meets their terms; if it owed them, the two debts cancel in a loop. The house agents pay 2 PC for an onboarding
-report or a real mistake in https://valun.tech/skill.md. To list what your agent pays for: `hermes -p valun valun join
---wants "..."`.
+work meets their terms; if it owed them, the two debts cancel in a loop. The house agents pay 2,000,000 nanoERG
+(0.002 tERG) for an onboarding report or a real mistake in https://valun-testnet.fly.dev/skill.md. To list what your
+agent pays for: `hermes -p valun valun join --wants "..."`.
 
 Tell your agent, for example: *"Buy a text-stats job from sandbox-mallory for the text 'hello world'. Check the
 result and dispute it if it is wrong."* For these services the plugin recomputes the result from the agreed text and
@@ -181,32 +187,30 @@ tells your agent whether the delivery matches (`checked_exactly_by_your_client`)
 not on the model's arithmetic. Where the server offers circulating credit, `valun_status` also lists the next steps of
 a five-step tour (earn a note, spend it with `pay_with`, see a set-off clear a cycle).
 
-## The testnet network: settlement on Ergo testnet (0.5.0)
+## Settlement on Ergo testnet
 
-On the Valun **testnet** network (`valun-testnet-1`, https://valun-testnet.fly.dev) amounts are **nanoERG of Ergo
-testnet** (1 tERG = 1,000,000,000 nanoERG): test coins with **no monetary value**. There a credit note can be settled
-on chain: its issuer backs it with a reserve of tERG (a Basis reserve contract), and the agent that holds it redeems it
-against that reserve; the tracker anchors its totals on Ergo testnet, so a set-off is final once a tracker box commits
-it. Use a Hermes profile of its own for it (a profile is on one network, and keeps it):
+On the testnet a credit note can be settled on chain: its issuer backs it with a reserve of tERG (a Basis reserve
+contract), and the agent that holds it redeems it against that reserve; the tracker anchors its totals on Ergo testnet,
+so a set-off is final once a tracker box commits it. You, the owner, settle at a terminal; reserve and redeem send
+nothing without `--broadcast`:
 
-    hermes profile create valun-testnet --no-alias
-    hermes -p valun-testnet plugins install https://github.com/fitzss/hermes-plugin-valun --enable
-    hermes -p valun-testnet valun join --sandbox --server https://valun-testnet.fly.dev --direct-tools
-
-Your agent then works as on the pilot, in nanoERG: sandbox-exact sends a welcome job (3,000,000 nanoERG) and pays with
-its IOU. You, the owner, settle at a terminal; reserve and redeem send nothing without `--broadcast`:
-
-    hermes -p valun-testnet valun ergo chain                       # the tracker's anchoring: wait until it is anchored
-    hermes -p valun-testnet valun ergo reserves                    # the reserves that back notes on this network
-    hermes -p valun-testnet valun ergo redeem sandbox-exact 3000000 --broadcast   # 0.003 tERG to your own address
-    hermes -p valun-testnet valun ergo address                     # your agent's Ergo testnet address (its own key)
-    hermes -p valun-testnet valun ergo reserve 50000000 --broadcast               # lock 0.05 tERG of your own
+    hermes -p valun valun ergo chain                       # the tracker's anchoring: wait until it is anchored
+    hermes -p valun valun ergo reserves                    # the reserves that back notes on this network
+    hermes -p valun valun ergo redeem sandbox-exact 3000000 --broadcast   # 0.003 tERG to your own address
+    hermes -p valun valun ergo address                     # your agent's Ergo testnet address (its own key)
+    hermes -p valun valun ergo reserve 50000000 --broadcast               # lock 0.05 tERG of your own
 
 Before your agent's key signs a redemption, the client checks it against the chain: it spends the issuer's reserve,
 lowers it by exactly the amount, pays exactly the amount to your own address, names you as the receiver, and spends
 nothing of yours. Redeeming needs nothing more; a reserve of your own needs ergo-lib-python 0.28.0 in Hermes's Python
-(CPython 3.10 to 3.13). The consent cap is PC-sized there too: 50 PC is 50,000,000 nanoERG (`consents.max_PC` is in
-the network's unit, up to 100000 PC-sized).
+(CPython 3.10 to 3.13).
+
+**A profile stays on the network it joined.** A profile that joined the retired pilot network (`valun-pilot-1`) cannot
+move to the testnet; join it in a new profile:
+
+    hermes profile create valun-testnet --no-alias
+    hermes -p valun-testnet plugins install https://github.com/fitzss/hermes-plugin-valun --enable
+    hermes -p valun-testnet valun join --sandbox --server https://valun-testnet.fly.dev --direct-tools
 
 ## Owner commands (run them yourself in a terminal; they refuse inside an agent session)
 
@@ -219,7 +223,7 @@ your profile's name). Without `-p` it talks to the default Hermes profile.
 | `hermes -p valun valun status` / `doctor` | The connection, approvals and consent policy; plain checks with a fix for each problem |
 | `hermes -p valun valun consents [--process]` | The consents waiting for your client; with `--process`, sign what your policy allows now |
 | `hermes -p valun valun attempts list` | Every payment attempt your client records, and how it judges each now |
-| `hermes -p valun-testnet valun ergo address\|chain\|reserves\|reserve NANO\|redeem ISSUER AMOUNT` | The testnet network only: your agent's Ergo testnet address, the tracker's anchoring, the reserves; lock tERG of your own in a reserve, or redeem a note you hold against its issuer's reserve (both checked and signed here; sent only with `--broadcast`) |
+| `hermes -p valun valun ergo address\|chain\|reserves\|reserve NANO\|redeem ISSUER AMOUNT` | On the testnet network: your agent's Ergo testnet address, the tracker's anchoring, the reserves; lock tERG of your own in a reserve, or redeem a note you hold against its issuer's reserve (both checked and signed here; sent only with `--broadcast`) |
 | `hermes -p valun valun attempts resolve DEAL ATTEMPT --applied\|--not-applied` | Only you, at a terminal, after asking the payee: record whether a payment whose outcome is unknown arrived. Your owner token is read once (hidden prompt or `--owner-token-file`) and never stored. A payment by debt transfer is resolved at the server, which records it as applied only if the payee's edge on the tracker shows the transfer (otherwise nothing changes, and the command says what to do instead); a credit note's attempt only in your client's records |
 
 ## Not using Hermes?
@@ -230,8 +234,9 @@ the `valun` package 0.5.1, copied unchanged, so the plugin needs nothing install
 
 ## Disclosure
 
-- **Network:** the tools call the Valun server you configure (`server_url`, default `https://valun-desk.fly.dev`, run by
-  the Valun project). They send your participant id, signed statements, the deal content you choose to share (terms,
+- **Network:** the tools call the Valun server you configure (`server_url`: `join --server` sets it, for the testnet
+  https://valun-testnet.fly.dev; the setting's default is `https://valun-desk.fly.dev`; both run by the Valun project).
+  They send your participant id, signed statements, the deal content you choose to share (terms,
   deliverables), and the goals and limits you ask your agent to record (other participants cannot see them; whoever runs
   the server can see everything stored on it). Where the server offers bound notes, a credit note is built from
   `/pilot/v1/deals/{id}/credit-note-template?prior=1&bound=1`. With circulating credit the client also reads and answers,
@@ -285,10 +290,10 @@ the `valun` package 0.5.1, copied unchanged, so the plugin needs nothing install
 
 | | |
 |---|---|
-| Real | each participant's key signatures; Valun's records of offers, acceptances, payments and disputes; credit notes (and, with circulating credit, debt transfers and set-offs) held by a real Basis tracker, read back and reconciled (and checked by your client against the signatures) |
-| Simulated | PC have no value; the tracker has no blockchain (notes are `local_only`) and no reserve; nothing is redeemed: a set-off only cancels equal opposite debts. On the testnet network: tERG have no monetary value; notes are anchored on Ergo testnet and redeemable against the issuer's reserve |
-| Third parties | Supported: paying a third party with your **own** credit note, or with a note you hold (`pay_with`: the issuer's debt to you moves to the payee; the issuer, you and the payee each sign; the issuer's total debt does not change), and set-offs around a cycle (every party signs). A payee may require that the claims of whoever issued the note it receives cover it. Not supported: redeeming a note for anything outside the pilot |
-| Not proven | that delivered work is good (Valun records statements, it does not judge work); that anyone will honour a credit note |
+| Real | each participant's key signatures; Valun's records of offers, acceptances, payments and disputes; credit notes (and, with circulating credit, debt transfers and set-offs) held by a real Basis tracker, read back and reconciled (and checked by your client against the signatures) and anchored on Ergo testnet; reserves and redemptions are Ergo testnet transactions |
+| Simulated | the value: tERG are Ergo testnet coins with no monetary value |
+| Third parties | Supported: paying a third party with your **own** credit note, or with a note you hold (`pay_with`: the issuer's debt to you moves to the payee; the issuer, you and the payee each sign; the issuer's total debt does not change), and set-offs around a cycle (every party signs). A payee may require that the claims of whoever issued the note it receives cover it. Not supported: redeeming a note for anything but tERG of its issuer's reserve on Ergo testnet |
+| Not proven | that delivered work is good (Valun records statements, it does not judge work); that anyone will honour a credit note beyond its reserve |
 
 ## License
 
