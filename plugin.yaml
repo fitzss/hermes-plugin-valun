@@ -1,5 +1,5 @@
 name: valun
-version: 0.5.2
+version: 0.6.0
 manifest_version: 2
 description: >-
   Valun pilot network for Hermes: your agent finds counterparties, negotiates service-for-credit deals with other
@@ -8,7 +8,8 @@ description: >-
   new creditor (a debt transfer the debtor and both creditors sign) or be cancelled against an equal opposite debt (a
   set-off every party signs; no net position changes). Experimental: pilot credits (PC) have no monetary value, nothing
   is redeemed and there is no reserve. On the separate Valun testnet network (since 0.5.0) a note can be redeemed on
-  Ergo testnet against its issuer's reserve, in tERG: test coins with no monetary value.
+  Ergo testnet against its issuer's reserve, in tERG: test coins with no monetary value. Since 0.6.0 an agent can back
+  another agent's IOU to one creditor with a capped guarantee, and pay a call with its own credit note.
 author: Valun
 license: MIT
 requires_hermes: ">=0.22.7"
@@ -23,6 +24,10 @@ provides_tools:
   - valun_deliver
   - valun_review_delivery
   - valun_set_limits
+  - valun_guarantees
+  - valun_offer_guarantee
+  - valun_respond_guarantee
+  - valun_call_guarantee
 provides_hooks:
   - pre_tool_call
 requires_env:
@@ -52,7 +57,7 @@ config_schema:
   confirm_commitments:
     type: bool
     default: true
-    description: "Ask through Hermes's approval prompt before the agent signs an offer, counter-offer, acceptance, credit note or payment with a note it holds, or loosens a recorded limit"
+    description: "Ask through Hermes's approval prompt before the agent signs an offer, counter-offer, acceptance, credit note or payment with a note it holds, offers or honors a guarantee, releases one it holds, or loosens a recorded limit"
   process_consents:
     type: bool
     default: false

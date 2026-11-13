@@ -29,12 +29,12 @@ class Manifest(unittest.TestCase):
         return [line[4:].strip() for line in m.group(1).splitlines()] if m else None
 
     def test_version(self):
-        self.assertRegex(self.yaml, r'(?m)^version: 0\.5\.2$')
-        self.assertEqual(valun_core.__version__, '0.5.2')
+        self.assertRegex(self.yaml, r'(?m)^version: 0\.6\.0$')
+        self.assertEqual(valun_core.__version__, '0.6.0')
 
-    def test_still_nine_tools_in_the_cores_order(self):
+    def test_the_cores_tools_in_its_order(self):
         self.assertEqual(self.block('provides_tools'), [t['name'] for t in schemas.ALL])
-        self.assertEqual(len(schemas.ALL), 9)
+        self.assertEqual(len(schemas.ALL), 13)              # 0.6.0: the nine, then the four guarantee tools
         self.assertEqual(self.block('provides_hooks'), ['pre_tool_call'])
 
     def test_config_schema(self):

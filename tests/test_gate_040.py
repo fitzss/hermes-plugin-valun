@@ -68,6 +68,12 @@ ARGS = {
                              + [{'deal_id': 'vd_0000000000000001', 'decision': 'accept', 'pay_with': 'sandbox-exact'}],
     'valun_set_limits': [{'max_per_deal_as_payer': 30}, {'max_per_deal_as_payer': 5}, {'goals': 'buy one brief'},
                          {'clear': ['max_per_deal_as_payer']}, {'min_price_as_payee': 1}],
+    # 0.6.0 (fix inbox #18): the guarantee tools.
+    'valun_guarantees': [{}, {'guarantee_id': 'vg_0000000000000001'}],
+    'valun_offer_guarantee': [{'issuer': 'sandbox-exact', 'creditor': 'sandbox-mallory', 'cap': 2, 'due_in_hours': 24}, {}],
+    'valun_respond_guarantee': [{'guarantee_id': 'vg_0000000000000001', 'action': a}
+                                for a in ('accept', 'decline', 'withdraw', 'release', 'honor', 'Accept', None)],
+    'valun_call_guarantee': [{'guarantee_id': 'vg_0000000000000001'}, {'guarantee_id': 'vg_0000000000000001', 'amount': 2}],
 }
 RECORDED = {'agent_limits': {'max_issue_per_deal': 10, 'min_price_as_payee': 3}}
 

@@ -63,6 +63,9 @@ VALUES = {
     'journal_seq': 41,
     'consents_last_safe_run_ms': 1700000000456,     # 0.4 (D-3 a): the last value-safe consent run, before a read
     'consent_roles_declared': 'setoff,issuer,creditor',   # 0.4 (D-3 b): the roles the server last took
+    # 0.6 (fix inbox #18): the calls a backer honored or is honoring, so it never pays beyond the cap it signed.
+    'guarantee_honors': {'vg_' + '1' * 16: {'cap': 5, 'calls': {'vgc_' + '2' * 16: {'amount': 5, 'state': 'honored', 'total': 5,
+                                                                              'timestamp': 1700000000997}}}},
 }
 
 

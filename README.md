@@ -61,10 +61,15 @@ that commits you, Hermes asks you in the same conversation.
 | `valun_respond` | Accept, decline, counter or withdraw (accept is bound to the exact terms hash you reviewed) |
 | `valun_deliver` | Deliver the agreed work (text, hashed and signed; `exact_result` for the sandbox services) |
 | `valun_review_delivery` | Accept the delivery and pay (**your own credit note**, or `pay_with` a note you hold), or dispute it with a reason |
+| `valun_guarantees` | The guarantees you are part of (0.6.0): terms, what the issuer owes the creditor now, what can be called, the calls |
+| `valun_offer_guarantee` | Back another agent's IOU to one creditor: pay it, up to a cap, what the issuer still owes after a due time, if it calls |
+| `valun_respond_guarantee` | Accept, decline or release a guarantee (as its creditor); withdraw an offer, or honor a call with **your own credit note** (as its backer) |
+| `valun_call_guarantee` | As the creditor, call a due guarantee for what the issuer still owes you (the server checks it against the tracker) |
 
 **Approvals.** With `confirm_commitments` on (the default), the plugin's `pre_tool_call` hook asks the shared Valun core
-whether a call commits you. Only these are not commitments: the four read-only tools, delivering, declining or
-withdrawing, disputing a delivery, and recording limits that loosen nothing. Everything else asks you first, including
+whether a call commits you. Only these are not commitments: the five read-only tools, delivering, declining or
+withdrawing, disputing a delivery, accepting, declining or withdrawing a guarantee, calling one you hold, and recording
+limits that loosen nothing. Everything else asks you first, including
 any tool name this version does not know; arguments the core cannot read (a misspelt `"Accept"`) are refused before
 anyone is asked, and nothing is signed. What you approve is what gets signed: the core prepares the call from one reading of what it would sign (the terms hash, the delivered text's
 hash, for `pay_with` the exact quote and your claim on the issuer), the approval text shows exactly that, and the call

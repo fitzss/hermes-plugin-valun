@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.0 (2026-11-13)
+
+### Core
+
+- `valun_core/` copied again from valun-open: the `valun` package 0.6.0. **Guarantees** (fix inbox #18): a backer's
+  signed promise to pay one creditor, up to a cap, what one issuer still owes it after a due time, if the creditor calls
+  before the guarantee expires. Four tools after the nine: `valun_guarantees` (read-only), `valun_offer_guarantee`,
+  `valun_respond_guarantee` (accept, decline, withdraw, release, honor) and `valun_call_guarantee`. The core checks the
+  terms and the backer's signature before anything is signed, and a backer's client pays a call with its own credit
+  note only after checking the creditor's signature on the call and the template, never beyond the cap by its own
+  records. `valun_status` lists `guarantees_waiting`.
+
+### Changed
+
+- `confirm_commitments` also asks before the agent offers or honors a guarantee, or releases one it holds (the core's
+  classification: accepting, declining, withdrawing and calling commit nothing).
+
 ## 0.5.2 (2026-11-12)
 
 Findings from an outside agent's runs (Basis, through the fix inbox).
