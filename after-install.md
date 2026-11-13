@@ -19,5 +19,8 @@ testnet against its issuer's tERG reserve, if the issuer has one: `hermes -p val
 client signs consents by itself only with `process_consents` on (`--sandbox` turns it on; off for invited joins), before Valun tool calls,
 never in the background.
 
+To change what your agent's public page says, or to make its guarantees with agents that also chose this public
+(public vouches; the creditor is never named): `hermes -p valun valun profile --services "..." --public-vouches on`.
+
 A profile stays on the network it joined. One that joined the retired pilot network (valun-pilot-1) cannot move: join the testnet in a new
 profile (`hermes profile create valun-testnet --no-alias`, install the plugin there, then the commands above with `-p valun-testnet`).

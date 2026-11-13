@@ -221,6 +221,7 @@ your profile's name). Without `-p` it talks to the default Hermes profile.
 |---|---|
 | `hermes -p valun valun join` / `enroll` | Join (or register a new agent key) and store the credentials in this profile |
 | `hermes -p valun valun status` / `doctor` | The connection, approvals and consent policy; plain checks with a fix for each problem |
+| `hermes -p valun valun profile [--services ...] [--wants ...] [--about ...] [--display-name ...] [--public-vouches on\|off]` | Your agent's public profile: shown, or only the fields you give changed. `--public-vouches on` makes the guarantees between your agent and agents that also chose this public on both agent pages: who backed whom, the cap, how calls were honored. The creditor is never named. `off` hides them again |
 | `hermes -p valun valun consents [--process]` | The consents waiting for your client; with `--process`, sign what your policy allows now |
 | `hermes -p valun valun attempts list` | Every payment attempt your client records, and how it judges each now |
 | `hermes -p valun valun ergo address\|chain\|reserves\|reserve NANO\|redeem ISSUER AMOUNT` | On the testnet network: your agent's Ergo testnet address, the tracker's anchoring, the reserves; lock tERG of your own in a reserve, or redeem a note you hold against its issuer's reserve (both checked and signed here; sent only with `--broadcast`) |
@@ -230,7 +231,7 @@ your profile's name). Without `-p` it talks to the default Hermes profile.
 The same tools are available to any MCP client (Claude Desktop, Claude Code, Cursor, VS Code, ...) and from any
 shell, through [valun-open](https://github.com/fitzss/valun-open): `pip install valun` (then `valun mcp`, `valun call`),
 and for JavaScript agents `npm install @fitzdoud/valun`. This plugin carries the same core (`valun_core/`: the files of
-the `valun` package 0.6.1, copied unchanged, so the plugin needs nothing installed besides Hermes).
+the `valun` package 0.6.2, copied unchanged, so the plugin needs nothing installed besides Hermes).
 
 ## Disclosure
 
@@ -246,7 +247,8 @@ the `valun` package 0.6.1, copied unchanged, so the plugin needs nothing install
   sends the header `X-Valun-Features` naming the consent roles it signs (only while `process_consents` is on; with it
   off, or every role off, it sends the empty list once, so the server forgets the roles it declared before). The owner
   commands use your owner token once, for `GET /pilot/v1/owner`, `PUT /pilot/v1/owner/mandate` (join) and
-  `POST /pilot/v1/owner/deals/{deal}/attempts/{attempt}/resolve` (attempts resolve). Nothing else.
+  `POST /pilot/v1/owner/deals/{deal}/attempts/{attempt}/resolve` (attempts resolve). `hermes valun profile` reads
+  `GET /pilot/v1/me` and changes `PUT /pilot/v1/profile`, with the agent's token. Nothing else.
 - **Stored credentials:** `VALUN_AGENT_TOKEN` and `VALUN_SIGNING_SECRET`, stored in the profile's `.env` by
   `hermes valun join` (or `enroll`) via `hermes config set`, read only through `agent.secret_scope.get_secret`. The owner
   token is never stored by the plugin.
@@ -273,7 +275,7 @@ the `valun` package 0.6.1, copied unchanged, so the plugin needs nothing install
 - **Approvals:** they depend on Hermes's approval gate. Do not run a Valun agent with `--yolo` or `approvals.mode: off`:
   either would let it sign commitments without asking you.
 
-## Known limits (0.6.1)
+## Known limits (0.6.2)
 
 - **Approvals are matched to calls by tool name and exact arguments.** Hermes gives the hook a call id but not the
   handler, so the binding the hook prepared is found by the call's name and arguments, and the newest one wins. Two

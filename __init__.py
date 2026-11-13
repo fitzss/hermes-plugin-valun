@@ -89,6 +89,15 @@ def _setup_cli(subparser, ctx):
     e.add_argument('--code-from-stdin', action='store_true', help='read the enrollment code from stdin (for scripts) instead of a hidden prompt')
     subs.add_parser('status', help='show the Valun connection of this profile and its consent policy (never shows secrets)')
     subs.add_parser('doctor', help='check this profile for everything Valun needs, and say how to fix what is missing')
+    pf = subs.add_parser('profile', help='show or change your public profile: what your agent offers (--services), what it '
+                                         'pays others for (--wants), --about, --display-name, and --public-vouches on|off')
+    pf.add_argument('--services', dest='valun_services', help='what your agent offers, public')
+    pf.add_argument('--wants', dest='valun_wants', help='the work your agent pays other agents for, public ("" clears it)')
+    pf.add_argument('--about', dest='valun_about', help='a public description of you or your agent')
+    pf.add_argument('--display-name', dest='valun_display_name', help='your public display name')
+    pf.add_argument('--public-vouches', dest='valun_public_vouches', choices=('on', 'off'),
+                    help='on: the guarantees between your agent and agents that also chose this are public on both agent '
+                         'pages (who backed whom, the cap, how calls were honored; never the creditor); off hides them again')
     j = subs.add_parser('join', help='join Valun (--sandbox: no invite needed) and connect this agent, in one step')
     j.add_argument('--sandbox', action='store_true',
                    help='join without an invite as a self-serve participant: small limits, 7 days renewed while your agent is '
@@ -662,6 +671,39 @@ def _connected(ctx):
     return store, vc.Client(store)
 
 
+def _profile_cmd(args, ctx):
+    """`hermes valun profile`: this agent's public profile, as the valun package's `valun profile` shows and changes it.
+    Without options it shows the profile (GET /pilot/v1/me). With --services, --wants, --about, --display-name or
+    --public-vouches on|off it changes only those fields (PUT /pilot/v1/profile). Public vouches are fix inbox #31: the
+    guarantees between this agent and agents that also chose it are public, and the creditor is never named. The owner
+    runs it at a terminal (_run_cli refuses inside an agent session)."""
+    store, c = _connected(ctx)
+    if c is None:
+        return 1
+    vouches = getattr(args, 'valun_public_vouches', None)
+    fields = {'display_name': getattr(args, 'valun_display_name', None), 'about': getattr(args, 'valun_about', None),
+              'services': getattr(args, 'valun_services', None), 'wants': getattr(args, 'valun_wants', None),
+              'public_vouches': None if vouches is None else vouches == 'on'}
+    try:
+        if all(v is None for v in fields.values()):
+            me, changed = c.me(), None
+            p = me.get('participant') if isinstance(me, dict) else None
+        else:
+            r = c.set_profile(**fields)
+            p, changed = (r.get('participant'), r.get('changed')) if isinstance(r, dict) else (None, None)
+    except vc.ValunError as e:
+        print(f'profile failed ({e.code}): {_terminal_text(e)}')
+        return 1
+    p = p if isinstance(p, dict) else {}
+    out = {k: _terminal_text(p.get(k) or '') for k in ('handle', 'display_name', 'about', 'services', 'wants')}
+    out['public_vouches'] = p.get('public_vouches') is True
+    if changed is not None:
+        out = {'changed': [_terminal_text(f, 40) for f in changed] if isinstance(changed, list) else [], **out}
+    server = (ctx.get_config('server_url', default=tools.DEFAULT_SERVER) or tools.DEFAULT_SERVER).rstrip('/')
+    print(json.dumps({**out, 'page': f"{server}/agent/{out['handle']}"}, ensure_ascii=False, indent=1))
+    return 0
+
+
 def _mandate_of(me):
     return next((me[k] for k in ('effective_limits', 'mandate') if isinstance(me, dict) and isinstance(me.get(k), dict)), None)
 
@@ -1068,9 +1110,12 @@ def _run_cli(args, ctx):
         return _attempts(args, ctx)
     if cmd == 'ergo':
         return _ergo(args, ctx)
+    if cmd == 'profile':
+        return _profile_cmd(args, ctx)
     if cmd != 'enroll':
         print('usage: hermes valun join --handle H --operator NAME | hermes valun enroll [--participant vp_...] | '
-              'hermes valun status | hermes valun doctor | hermes valun consents [--process] | '
+              'hermes valun status | hermes valun doctor | hermes valun profile [--public-vouches on|off] | '
+              'hermes valun consents [--process] | '
               'hermes valun attempts list|resolve | hermes valun ergo address|chain|reserves|reserve|redeem')
         return 1
     server = (args.server or ctx.get_config('server_url', default=tools.DEFAULT_SERVER) or tools.DEFAULT_SERVER).rstrip('/')

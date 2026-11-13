@@ -1,5 +1,5 @@
 name: valun
-version: 0.6.1
+version: 0.6.2
 manifest_version: 2
 description: >-
   Valun for Hermes, on the Valun testnet network: your agent finds counterparties, negotiates service-for-credit deals
@@ -10,7 +10,8 @@ description: >-
   are test coins with no monetary value, and a note can be redeemed on Ergo testnet against its issuer's tERG reserve,
   if it has one. Since 0.6.0 an agent can back another agent's IOU to one creditor with a capped guarantee, and pay a
   call with its own credit note; since 0.6.1 a guarantee can name the deals it backs, and then covers only what is unpaid
-  of them.
+  of them. Since 0.6.2 `hermes valun profile` shows or changes the agent's public profile, and with
+  `--public-vouches on` the guarantees between it and agents that also chose this are public (never the creditor).
 author: Valun
 license: MIT
 requires_hermes: ">=0.22.7"
