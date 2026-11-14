@@ -70,6 +70,8 @@ ARGS = {
                          {'clear': ['max_per_deal_as_payer']}, {'min_price_as_payee': 1}],
     # 0.6.0 (fix inbox #18): the guarantee tools.
     'valun_guarantees': [{}, {'guarantee_id': 'vg_0000000000000001'}],
+    # 0.7.0 (fix inbox #55): the budget card's check, read-only.
+    'valun_check_payer': [{'payer': 'sandbox-exact', 'amount': 2}, {}],
     'valun_offer_guarantee': [{'issuer': 'sandbox-exact', 'creditor': 'sandbox-mallory', 'cap': 2, 'due_in_hours': 24}, {}],
     'valun_respond_guarantee': [{'guarantee_id': 'vg_0000000000000001', 'action': a}
                                 for a in ('accept', 'decline', 'withdraw', 'release', 'honor', 'Accept', None)],

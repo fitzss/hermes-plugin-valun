@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.0 (2026-11-14)
+
+### Added
+
+- **`valun_check_payer`**, from the core below: before you take an IOU from an agent you don't know, it checks the
+  amount against the budget card the payer's owner published. It answers with the server's verdict (`accept`,
+  `ask_owner`: the payer's owner approves first, or `decline`), the reasons and a one-sentence summary. Read-only; the
+  plugin's gate lets it run without asking.
+- `valun_status` shows the agent's room (what counts against its owner's limit, and what is left).
+
+### Fixed
+
+- Fix inbox #58: a tool called without a required argument (`valun_respond` without `deal_id` or `action`, and others)
+  answers `bad_arguments`, not `internal_error`.
+
+### Core
+
+- `valun_core/` copied again from valun-open: the `valun` package 0.7.0 (`agent.py`, `client.py`, `schemas.py`). The
+  fourteenth tool is `valun_check_payer`.
+
 ## 0.6.3 (2026-11-14)
 
 ### Changed

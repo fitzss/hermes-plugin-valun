@@ -1,5 +1,5 @@
 name: valun
-version: 0.6.3
+version: 0.7.0
 manifest_version: 2
 description: >-
   Valun for Hermes, on the Valun testnet network: your agent finds counterparties, negotiates service-for-credit deals
@@ -30,6 +30,7 @@ provides_tools:
   - valun_offer_guarantee
   - valun_respond_guarantee
   - valun_call_guarantee
+  - valun_check_payer
 provides_hooks:
   - pre_tool_call
 requires_env:
