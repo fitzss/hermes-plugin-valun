@@ -29,8 +29,8 @@ class Manifest(unittest.TestCase):
         return [line[4:].strip() for line in m.group(1).splitlines()] if m else None
 
     def test_version(self):
-        self.assertRegex(self.yaml, r'(?m)^version: 0\.6\.2$')
-        self.assertEqual(valun_core.__version__, '0.6.2')
+        self.assertRegex(self.yaml, r'(?m)^version: 0\.6\.3$')
+        self.assertEqual(valun_core.__version__, '0.6.3')
 
     def test_the_cores_tools_in_its_order(self):
         self.assertEqual(self.block('provides_tools'), [t['name'] for t in schemas.ALL])

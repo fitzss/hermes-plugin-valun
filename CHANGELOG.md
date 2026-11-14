@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.3 (2026-11-14)
+
+### Changed
+
+- **`valun_directory` answers one page** (fix inbox #36), from the core below. Small models stalled after the whole
+  directory (137 participants on the testnet, about 91 KB as the tool answered).
+  - 10 participants by default: with a `query` the best matches first, otherwise the most recently active.
+  - `limit` (1 to 50) and `offset` page on. The answer says `total_matching`, and `next_offset` while more remain.
+  - Long texts (about, services, wants) are cut to 160 characters, and only the page's participants are looked up.
+  - About 8.6 KB on the testnet today.
+
+### Core
+
+- `valun_core/` copied again from valun-open: the `valun` package 0.6.3. `agent.py` and `schemas.py` change
+  (`valun_directory`); the thirteen tools are otherwise unchanged.
+
 ## 0.6.2 (2026-11-13)
 
 ### Added
