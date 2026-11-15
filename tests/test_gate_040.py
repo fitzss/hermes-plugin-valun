@@ -60,7 +60,10 @@ ARGS = {
     'valun_directory': [{}, {'service': 'notary'}],
     'valun_inbox': [{}],
     'valun_deal': [{'deal_id': 'vd_0000000000000001'}],
-    'valun_propose': [{'counterparty': 'sandbox-exact', 'role': 'payer', 'title': 't', 'description': 'd', 'price': 2}, {}],
+    # 0.7.1 (fix inbox #58): the first has every argument the schema requires (the core refuses a call without
+    # deliverable before anything, as the last one shows).
+    'valun_propose': [{'counterparty': 'sandbox-exact', 'role': 'payer', 'title': 't', 'description': 'd', 'deliverable': 'r',
+                       'price': 2}, {}, {'counterparty': 'sandbox-exact', 'role': 'payer', 'title': 't', 'description': 'd', 'price': 2}],
     'valun_respond': [{'deal_id': 'vd_0000000000000001', 'action': a} for a in ('accept', 'counter', 'decline', 'withdraw', 'Accept', None)]
                      + [{'deal_id': 'vd_0000000000000001'}],
     'valun_deliver': [{'deal_id': 'vd_0000000000000001', 'content': 'x'}, {'deal_id': 'vd_0000000000000001', 'exact_result': True}],
@@ -108,23 +111,60 @@ class GateLikeTheCore(unittest.TestCase):
         tools._BOUND.clear()
 
     def test_every_tool_is_classified_as_the_core_classifies_it(self):
+        """0.7.1 (fix inbox #58): a commitment whose arguments the core refuses (va.tool_arguments: one the tool requires
+        is missing or null) is blocked with the core's own refusal, bad_arguments, as the core's adapters answer it
+        instead of asking: nothing is prepared, bound or asked. Every other commitment is asked with prepare()'s text."""
         self.assertEqual(sorted(ARGS), sorted(t['name'] for t in schemas.ALL))
         core = va.ValunAgent(tools.HermesStore(self.ctx))
-        seen = {True: 0, False: 0}
+        seen = {True: 0, False: 0, 'refused': 0}
         for name in [t['name'] for t in schemas.ALL]:
             for args in ARGS[name]:
                 with self.subTest(name=name, args=args):
                     commits = core.is_commitment(name, args)
-                    seen[commits] += 1
+                    try:
+                        va.tool_arguments(name, args)
+                        refused = None
+                    except vc.ValunError as e:
+                        refused = e
+                    prepared = len(self.prepared)
                     out = plugin._gate(self.ctx, name, args)
-                    if commits:
+                    if commits and refused is None:
+                        seen[True] += 1
                         self.assertEqual(out['action'], 'approve')
                         self.assertEqual(out['message'], f'TEXT for {name}')
                         self.assertRegex(out['rule_key'], rf'^valun:{name}:[0-9a-f]{{16}}$')
+                    elif commits:
+                        seen['refused'] += 1
+                        self.assertEqual(refused.code, 'bad_arguments')
+                        self.assertEqual(out, {'action': 'block', 'message': f'{tools.BLOCK_TEXT} (bad_arguments) {refused}'})
+                        self.assertEqual(len(self.prepared), prepared, 'refused before prepare(): nothing is read')
+                        self.assertNotIn(tools._call_key(name, args), tools._BOUND, 'nothing is bound for the handler')
                     else:
+                        seen[False] += 1
                         self.assertIsNone(out)
         self.assertGreater(seen[True], 10)
         self.assertGreater(seen[False], 8)
+        self.assertGreater(seen['refused'], 6)
+
+    def test_arguments_that_are_not_an_object_are_the_cores_to_refuse(self):
+        """0.7.1 (fix inbox #58): the hook hands the core the arguments as given (0.7.0 took anything but an object as
+        {}). A commitment is blocked with the core's refusal, before anything is prepared or bound; a call that never
+        commits is left to its handler, which answers that refusal itself (UnboundCommitment)."""
+        core = va.ValunAgent(tools.HermesStore(self.ctx))
+        blocked = set()
+        for name in va.TOOL_NAMES:
+            for args in ('x', 42, [1], [], '', 0, False):
+                with self.subTest(name=name, args=args):
+                    out = plugin._gate(self.ctx, name, args)
+                    if core.is_commitment(name, args):
+                        blocked.add(name)
+                        self.assertEqual(out, {'action': 'block', 'message': f'{tools.BLOCK_TEXT} (bad_arguments) the '
+                                                                             'arguments are not a JSON object; nothing was signed'})
+                    else:
+                        self.assertIsNone(out)
+        self.assertEqual(blocked, set(va.SIGNING_TOOLS + va.LIMIT_TOOLS) - {'valun_call_guarantee'})
+        self.assertEqual(self.prepared, [])
+        self.assertEqual(tools._BOUND, {})
 
     def test_an_unknown_valun_tool_is_a_commitment(self):
         out = plugin._gate(self.ctx, 'valun_unknown_new_tool', {'x': 1})
@@ -257,11 +297,41 @@ class UnboundCommitment(unittest.TestCase):
                            ('valun_respond', {'deal_id': 'vd_0000000000000001', 'action': 'counter', 'price': 3}),
                            ('valun_review_delivery', {'deal_id': 'vd_0000000000000001', 'decision': 'accept'}),
                            ('valun_review_delivery', {'deal_id': 'vd_0000000000000001', 'decision': 'accept', 'pay_with': 'sandbox-exact'}),
-                           ('valun_propose', {'counterparty': 'sandbox-exact', 'role': 'payer', 'title': 't', 'description': 'd', 'price': 2})):
+                           ('valun_propose', {'counterparty': 'sandbox-exact', 'role': 'payer', 'title': 't', 'description': 'd',
+                                              'deliverable': 'r', 'price': 2})):
             out = json.loads(h[name](dict(args)))
             self.assertEqual(out['error'], 'approval_missing', (name, args))
+        # 0.7.1 (fix inbox #58): without an argument the tool requires, the core refuses the call itself, first.
+        for name, args, missing in (('valun_propose', {'counterparty': 'sandbox-exact', 'role': 'payer', 'title': 't',
+                                                       'description': 'd', 'price': 2}, 'deliverable'),
+                                    ('valun_respond', {'deal_id': 'vd_0000000000000001'}, 'action'),
+                                    ('valun_review_delivery', {'deal_id': 'vd_0000000000000001', 'decision': None}, 'decision')):
+            out = json.loads(h[name](dict(args)))
+            self.assertEqual(out['error'], 'bad_arguments', (name, args))
+            self.assertTrue(out['message'].startswith(f'missing argument: {missing} ('), out)
         self.assertEqual(self.requests, [])
         self.assertEqual(self.signed, [])
+
+    def test_arguments_the_core_refuses_are_refused_before_anything(self):
+        """0.7.1 (fix inbox #58): every handler answers the core's own refusal (bad_arguments) to arguments that are not a
+        JSON object (0.7.0 took them as {}) or that lack one the tool requires (null counts as missing), naming each one
+        missing, before anything is read, signed or sent: with confirm_commitments on or off, and with the consents on."""
+        for config in ({}, {'confirm_commitments': False}, {'process_consents': True, 'consents.setoff': True}):
+            h = tools.make_handlers(Ctx(**config))
+            for name in va.TOOL_NAMES:
+                signs = name not in va.READ_ONLY_TOOLS
+                for args in ('x', 42, [1], [], '', 0, False):
+                    out = json.loads(h[name](args))
+                    self.assertEqual(out, {'error': 'bad_arguments', 'message': 'the arguments are not a JSON object'
+                                                                                + ('; nothing was signed' if signs else '')},
+                                     (config, name, args))
+                required = va.REQUIRED_ARGUMENTS[name]
+                for args in ({}, None, dict.fromkeys(required)) if required else ():      # None: no arguments at all
+                    out = json.loads(h[name](args))
+                    self.assertEqual(out['error'], 'bad_arguments', (config, name, args))
+                    self.assertEqual([k for k in required if f'{k} (' in out['message']], list(required), out)
+                    self.assertEqual(out['message'].endswith('; nothing was signed'), signs, out)
+        self.assertEqual((self.requests, self.signed), ([], []))
 
     def test_a_harmless_call_runs_without_a_binding(self):
         out = json.loads(tools.make_handlers(self.ctx)['valun_respond']({'deal_id': 'vd_0000000000000001', 'action': 'decline', 'reason': 'no'}))
@@ -321,9 +391,10 @@ class UnboundCommitment(unittest.TestCase):
         self.assertEqual(calls, [args])
 
     def test_a_misspelt_decision_gets_the_cores_refusal(self):
-        for decision in ('ok', 'Accept', None):
+        # 0.7.1 (fix inbox #58): no decision at all is a missing argument; a misspelt one is still bad_decision.
+        for decision, code in (('ok', 'bad_decision'), ('Accept', 'bad_decision'), (None, 'bad_arguments')):
             out = json.loads(tools.make_handlers(self.ctx)['valun_review_delivery']({'deal_id': 'vd_0000000000000001', 'decision': decision}))
-            self.assertEqual(out['error'], 'bad_decision', decision)
+            self.assertEqual(out['error'], code, decision)
         self.assertEqual((self.requests, self.signed), ([], []))
 
     def test_a_handler_never_raises(self):

@@ -528,12 +528,35 @@ def agent_for(ctx):
                          brief_status=ctx.get_config('brief_status', default=False) is True)
 
 
-def argument_refusal(name, args):
-    """The core's own refusal of these arguments, where it refuses them before it needs its key (a misspelt review
-    decision: bad_decision), from an agent over a store that holds no key, token or server, so it can sign and send
-    nothing. None when the core would need its key to go further."""
+def call_arguments(args):
+    """A tool call's arguments as the core takes them (va.tool_arguments): {} for none (None), a copy of a JSON object,
+    and anything else as it is, so that the core's argument check (fix inbox #58) refuses what is not an object, as in
+    every adapter of the core, where 0.7.0 took it as {}. (Hermes itself hands the hook and the handlers objects only.)"""
+    return {} if args is None else dict(args) if isinstance(args, dict) else args
+
+
+def bad_arguments(name, args):
+    """The core's refusal of a call's arguments before anything is read or signed: its own check, va.tool_arguments (fix
+    inbox #58: arguments that are not a JSON object, or without one the tool's schema requires; null counts as
+    missing), as the core's call() runs it where every call comes in. bad_arguments naming each one missing and what it
+    is; None when the core takes them."""
     try:
-        out = _CORE_AGENT(_Keyless(), setup_hint=SETUP_HINT, process_consents=False).call_safe(name, dict(args or {}))
+        va.tool_arguments(name, args)
+    except vc.ValunError as e:
+        return va.error_payload(e, SETUP_HINT)
+    return None
+
+
+def argument_refusal(name, args):
+    """The core's own refusal of these arguments, where it refuses them before it needs its key: its argument check
+    (bad_arguments), then the tool's own (a misspelt review decision: bad_decision), from an agent over a store that
+    holds no key, token or server, so it can sign and send nothing. None when the core would need its key to go
+    further."""
+    refused = bad_arguments(name, args)
+    if refused is not None:
+        return refused
+    try:
+        out = _CORE_AGENT(_Keyless(), setup_hint=SETUP_HINT, process_consents=False).call_safe(name, call_arguments(args))
     except Exception:  # noqa: BLE001
         return None
     if not isinstance(out, dict) or out.get('error') in (None, 'not_connected', 'not_configured', 'internal_error'):
@@ -573,7 +596,7 @@ _BOUND, _BOUND_LOCK, _BOUND_KEEP_S, _BOUND_MAX = {}, threading.Lock(), 24 * 3600
 
 
 def _call_key(name, args):
-    return json.dumps([name, args or {}], sort_keys=True, ensure_ascii=False, default=str)
+    return json.dumps([name, {} if args is None else args], sort_keys=True, ensure_ascii=False, default=str)
 
 
 def remember_binding(name, args, bound):
@@ -599,7 +622,11 @@ def take_binding(name, args):
 
 
 def _run(ctx, name, args):
-    """One tool call (see make_handlers)."""
+    """One tool call (see make_handlers). Its arguments are checked first, by the core's own check (bad_arguments):
+    a call the core refuses reads, signs and sends nothing, whatever the state of this profile."""
+    refused = bad_arguments(name, args)
+    if refused is not None:
+        return hermes_result(ctx, refused)
     bound = take_binding(name, args)
     agent = agent_for(ctx)
     store = agent.store
@@ -615,15 +642,17 @@ def _run(ctx, name, args):
 
 
 def make_handlers(ctx):
-    """The nine tools' handlers. Each returns a JSON string and never raises. With confirm_commitments on, a commitment
-    signs only the arguments the approval hook bound for exactly that call (and is refused without them). With
-    process_consents on, the core signs the consents the owner's policy allows before a tool that is not read-only, and
-    the value-safe ones before valun_status and valun_inbox (each at most once a minute). Results name this profile's
-    Hermes commands where the core names its CLI's (hermes_result)."""
+    """The handlers of the core's tools (va.TOOL_NAMES). Each returns a JSON string and never raises. Arguments the core
+    refuses (fix inbox #58: not a JSON object, or without one the tool requires) answer its bad_arguments before
+    anything else. With confirm_commitments on, a commitment signs only the arguments the approval hook bound for
+    exactly that call (and is refused without them). With process_consents on, the core signs the consents the owner's
+    policy allows before a tool that is not read-only, and the value-safe ones before valun_status and valun_inbox (each
+    at most once a minute). Results name this profile's Hermes commands where the core names its CLI's
+    (hermes_result)."""
     def wrap(name):
         def handler(args, **kwargs):
             try:
-                out = _run(ctx, name, dict(args) if isinstance(args, dict) else {})
+                out = _run(ctx, name, call_arguments(args))
             except Exception as e:  # noqa: BLE001 - a handler never raises (Hermes plugin contract)
                 try:
                     hint = setup_hint(ctx)

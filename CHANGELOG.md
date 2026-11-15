@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.7.1 (2026-11-15)
+
+### Added
+
+- **`valun_check_payer` takes `deal_id`** (fix inbox #60), from the core below: the deal whose offer you are deciding
+  on, with its price as `amount`. The payer's room already counts its open offers, so without `deal_id` the check
+  answers for a new deal on top of that offer (for the offer itself, counting it twice); with `deal_id` the server
+  counts the offer once.
+  - A check without `deal_id` at the price of an offer the payer made you says so in its summary, and gives the call
+    that checks the offer itself.
+  - When your own side of the step would not simply go ahead (your own limits refuse it, or your owner decides
+    first), the summary ends with *"Your own side: ..."*, so an Accept for the payer never reads as one for you.
+  - A `deal_id` that is not a deal id (`vd_` + 16 hex) is refused before anything is read. `deal_id` needs a server
+    with #60: an older one answers for a new deal, and the check refuses that answer (`offer_not_checked`).
+  - Still read-only: the plugin's gate lets it run without asking.
+
+### Changed
+
+- **Unit-neutral amount names** (fix inbox #35), from the core below. Every tool's answer gives each `<name>_PC` a
+  `<name>` just before it, and the `PC` of a `{count, PC}` tally an `amount`, with the same value in the network's
+  unit: `valun_status` `you_hold`, `you_owe`, `net`, `cleared_so_far` and `notes_you_can_spend[].amount`,
+  `consents_signed_now` `your_net_change` and `your_total_owed_change`, and so on. The `_PC` and `PC` names are
+  deprecated: they stay, with the same values, until a later release removes them, announced in the fix inbox and
+  this changelog first. The setting keeps its name (`consents.max_PC`).
+
+### Fixed
+
+- **Arguments refused by name** (fix inbox #58), from the core below. Every tool's arguments are checked once, by
+  the core's own check, where every call comes in: a call without an argument the tool's schema requires (null
+  counts as missing), or whose arguments are not a JSON object, answers `bad_arguments` naming each argument missing
+  and what it is, before anything is read, signed or sent.
+  - The approval hook blocks such a commitment with that refusal, as the core's own adapters answer it, and never
+    asks you. 0.7.0's hook blocked it too, but without naming the argument (`approval_unbound`: "could not read what
+    you would sign"; `bad_decision` for a review without a decision), and for some tools only after reading the
+    server.
+  - Answers that change: `valun_review_delivery` without `decision` is `bad_arguments` (a misspelt decision is still
+    `bad_decision`); a commitment without a required argument is `bad_arguments` from its handler too, not
+    `approval_missing`; `valun_propose` without `price`, `valun_check_payer` without `amount` and
+    `valun_offer_guarantee` without `cap` say "missing argument: ...".
+  - Arguments that are not an object go to the core as they are, and it refuses them: 0.7.0's plugin took them as
+    `{}`. (Hermes itself hands the plugin objects only.)
+
+### Core
+
+- `valun_core/` copied again from valun-open: the `valun` package 0.7.1 (`agent.py`, `client.py`, `measure.py`,
+  `schemas.py`), and **`fences.py`, new**, which `agent.py` and `measure.py` import: fenced blocks read as CommonMark
+  reads them (fix inbox #70). When the plugin measures a delivery against the deal's terms (`valun_deal`,
+  `valun_deliver`, the approval text of an acceptance), numbers inside `~~~` and longer-fenced blocks of the terms,
+  like those inside ``` blocks, are quoted material, not the deal's requirements. The core is ten files.
+
 ## 0.7.0 (2026-11-14)
 
 ### Added

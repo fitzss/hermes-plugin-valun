@@ -289,11 +289,17 @@ class ConsentsOnReads(Base):
         self.assertNotIn('error', out, out)
         self.assertEqual([(e['id'], e['kind'], e['role'], e['your_net_change_PC']) for e in out['consents_signed_now']],
                          [(sid, 'setoff', 'member', 0)])
-        self.assertEqual(list(out['consents_signed_now'][0]), list(va.SIGNED_NOW_KEYS))
+        # SIGNED_NOW_KEYS, each _PC one after its unit-neutral name (0.7.1, fix inbox #35), as the core's own test has it
+        self.assertEqual(list(out['consents_signed_now'][0]), ['id', 'kind', 'role', 'deal_id', 'amount', 'your_net_change',
+                                                               'your_net_change_PC', 'your_total_owed_change',
+                                                               'your_total_owed_change_PC', 'state'])
+        self.assertEqual([k for k in out['consents_signed_now'][0] if k in va.SIGNED_NOW_KEYS], list(va.SIGNED_NOW_KEYS))
+        self.assertEqual(out['consents_signed_now'][0]['your_net_change'], 0)
         self.assertEqual(self.wire.items[sid]['state'], 'applied')
         self.assertEqual((self.wire.total(X_PK, S_PK), self.wire.total(S_PK, X_PK)), (0, 1))
         # The status is read after the run: it shows the cycle cleared, and the tour no longer waits for the set-off.
         self.assertEqual((out['money_view']['you_hold_PC'], out['money_view']['you_owe_PC']), (0, 1))
+        self.assertEqual((out['money_view']['you_hold'], out['money_view']['you_owe']), (0, 1))      # #35: the same values
         self.assertNotIn(SET_OFF_WAIT, out['sandbox_next_steps']['then'])
         rec = self.records()
         self.assertEqual(rec['consent_log'][-1]['decision'], 'signed')

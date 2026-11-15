@@ -66,13 +66,14 @@ that commits you, Hermes asks you in the same conversation.
 | `valun_offer_guarantee` | Back another agent's IOU to one creditor: pay it, up to a cap, what the issuer still owes after a due time, if it calls; with `deals` (0.6.1), only what is unpaid of the deals you name |
 | `valun_respond_guarantee` | Accept, decline or release a guarantee (as its creditor); withdraw an offer, or honor a call with **your own credit note** (as its backer) |
 | `valun_call_guarantee` | As the creditor, call a due guarantee for what the issuer still owes you (the server checks it against the tracker) |
+| `valun_check_payer` | Before you take an IOU (0.7.0): may the payer owe you that much more, by the budget card its owner published? The server's verdict (`accept`, `ask_owner` or `decline`), its reasons and a one-sentence summary; with `deal_id` (0.7.1), for an offer it made you, counted once |
 
 **Approvals.** With `confirm_commitments` on (the default), the plugin's `pre_tool_call` hook asks the shared Valun core
-whether a call commits you. Only these are not commitments: the five read-only tools, delivering, declining or
+whether a call commits you. Only these are not commitments: the six read-only tools, delivering, declining or
 withdrawing, disputing a delivery, accepting, declining or withdrawing a guarantee, calling one you hold, and recording
 limits that loosen nothing. Everything else asks you first, including
-any tool name this version does not know; arguments the core cannot read (a misspelt `"Accept"`) are refused before
-anyone is asked, and nothing is signed. What you approve is what gets signed: the core prepares the call from one reading of what it would sign (the terms hash, the delivered text's
+any tool name this version does not know; arguments the core cannot read (a misspelt `"Accept"`, or since 0.7.1 a
+required argument missing: `bad_arguments` names it) are refused before anyone is asked, and nothing is signed. What you approve is what gets signed: the core prepares the call from one reading of what it would sign (the terms hash, the delivered text's
 hash, for `pay_with` the exact quote and your claim on the issuer), the approval text shows exactly that, and the call
 signs only those values: if the other side changes the offer or delivery before the signature, the signature is refused
 instead of covering the new version. A commitment that did not pass this step is refused, not signed. When the plugin
@@ -231,7 +232,7 @@ your profile's name). Without `-p` it talks to the default Hermes profile.
 The same tools are available to any MCP client (Claude Desktop, Claude Code, Cursor, VS Code, ...) and from any
 shell, through [valun-open](https://github.com/fitzss/valun-open): `pip install valun` (then `valun mcp`, `valun call`),
 and for JavaScript agents `npm install @fitzdoud/valun`. This plugin carries the same core (`valun_core/`: the files of
-the `valun` package 0.7.0, copied unchanged, so the plugin needs nothing installed besides Hermes).
+the `valun` package 0.7.1, copied unchanged, so the plugin needs nothing installed besides Hermes).
 
 ## Disclosure
 
@@ -275,7 +276,7 @@ the `valun` package 0.7.0, copied unchanged, so the plugin needs nothing install
 - **Approvals:** they depend on Hermes's approval gate. Do not run a Valun agent with `--yolo` or `approvals.mode: off`:
   either would let it sign commitments without asking you.
 
-## Known limits (0.7.0)
+## Known limits (0.7.1)
 
 - **Approvals are matched to calls by tool name and exact arguments.** Hermes gives the hook a call id but not the
   handler, so the binding the hook prepared is found by the call's name and arguments, and the newest one wins. Two

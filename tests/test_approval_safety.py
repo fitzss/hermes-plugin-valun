@@ -45,10 +45,11 @@ class FailClosed(unittest.TestCase):
         self.assertFalse(hasattr(plugin, '_is_commitment') or hasattr(plugin, 'COMMITMENT_TOOLS'))
 
     def test_review_refuses_unknown_decisions_before_anything_else(self):
+        # 0.7.1 (fix inbox #58): no decision at all is a missing argument (bad_arguments); a misspelt one is bad_decision.
         handler = tools.make_handlers(Ctx())['valun_review_delivery']
-        for d in ('Accept', 'ok', None):
+        for d, code in (('Accept', 'bad_decision'), ('ok', 'bad_decision'), (None, 'bad_arguments')):
             out = json.loads(handler({'deal_id': 'vd_0000000000000000', 'decision': d}))
-            self.assertEqual(out['error'], 'bad_decision', d)
+            self.assertEqual(out['error'], code, d)
 
 
 if __name__ == '__main__':

@@ -28,13 +28,16 @@ def _gate(ctx, tool_name, args):
     argument it does not know counts as one), while confirm_commitments is on: the core's prepare() binds the call and
     writes its approval text from one snapshot of what it would sign; the binding is remembered for the handler, and
     Hermes's own approval gate asks the owner with that text (a random rule_key, so a saved "always" never matches a
-    later commitment). When preparing fails, the call is blocked: nothing is asked and nothing is signed. Never
-    auto-approves; under cron and other unattended runs Hermes decides (by default it denies)."""
+    later commitment). When preparing fails, the call is blocked: nothing is asked and nothing is signed. That includes
+    a commitment whose arguments the core refuses (fix inbox #58: not a JSON object, or without one the tool requires):
+    prepare_or_refusal checks them first, with the core's own check, and the block gives its bad_arguments, as the
+    core's adapters answer it instead of asking. Never auto-approves; under cron and other unattended runs Hermes
+    decides (by default it denies)."""
     if not (isinstance(tool_name, str) and tool_name.startswith('valun_')):
         return None                                   # not a Valun tool
     if not tools.confirm_commitments(ctx):
         return None                                   # off: the agent acts within the owner's limits without asking
-    a = dict(args) if isinstance(args, dict) else {}
+    a = tools.call_arguments(args)                    # as given: the core refuses what is not an object (#58)
     try:
         agent = tools.agent_for(ctx)
         if not agent.is_commitment(tool_name, a):

@@ -28,6 +28,7 @@ from datetime import datetime, timedelta, timezone
 
 from . import basis as vb
 from . import client as vc
+from . import fences
 from . import measure
 from . import novation as nv
 from . import sandbox
@@ -488,7 +489,9 @@ def _count_or(a, k, units, default=None):
     return default if a.get(k) is None else _count(k, a[k], units)
 
 
-# What each required argument of a tool is, for the refusal when it is missing (fix inbox #58).
+# What each required argument of a tool is, for the refusal when it is missing (fix inbox #58): every argument a tool's
+# schema requires (REQUIRED_ARGUMENTS) has its words here, and ARGUMENT_WORDS_OF has a tool's own words for an argument
+# that means something else there.
 ARGUMENT_WORDS = {
     'deal_id': 'the deal id, vd_ + 16 hex, as valun_inbox lists it',
     'action': 'accept, decline, counter or withdraw',
@@ -498,32 +501,89 @@ ARGUMENT_WORDS = {
     'description': 'what exactly is to be done',
     'deliverable': 'what will be delivered and in what form',
     'payer': 'the handle or participant id of the agent that would owe you',
+    'price': 'the price: a whole number, at least 1',
+    'decision': 'accept or dispute',
+    'amount': "what it would owe you, the deal's price: a whole number, at least 1",
+    'issuer': 'the handle or participant id of the agent whose debt you back',
+    'creditor': 'the handle or participant id of the agent you would pay',
+    'cap': 'the most you pay in all: a whole number, at least 1',
+    'due_in_hours': 'hours from now until the creditor can call: 0 for as soon as it accepts',
+    'guarantee_id': 'the guarantee id, vg_ + 16 hex, as valun_guarantees lists it',
 }
+ARGUMENT_WORDS_OF = {'valun_respond_guarantee': {'action': 'accept, decline, release, withdraw or honor'}}
+# The arguments each tool requires: its schema's `required`, what the model reads (tool_arguments refuses a call without one).
+REQUIRED_ARGUMENTS = {t['name']: tuple(t['parameters'].get('required') or ()) for t in schemas.ALL}
 
 
 # The arguments valun_propose needs besides its numbers (the price is checked as a number: _count).
 PROPOSE_TEXTS = ('counterparty', 'role', 'title', 'description', 'deliverable')
 
 
-def _required(a, keys, signs=True):
+def _required(a, keys, signs=True, words=None):
     """The values of the required arguments `keys` of a tool call, in that order. Fix inbox #58: a call without one (or
-    with it null) is refused with bad_arguments naming each one missing and what it is, before anything is read, instead
-    of failing on a KeyError (internal_error); arguments that are not a JSON object are refused the same way."""
+    with it null) is refused with bad_arguments naming each one missing and what it is (ARGUMENT_WORDS, or `words` for a
+    tool's own), before anything is read, instead of failing on a KeyError (internal_error); arguments that are not a
+    JSON object are refused the same way."""
     if not isinstance(a, dict):
         raise vc.ValunError('bad_arguments', 'the arguments are not a JSON object' + ('; nothing was signed' if signs else ''))
     missing = [k for k in keys if a.get(k) is None]
     if missing:
+        w = {**ARGUMENT_WORDS, **(words or {})}
         raise vc.ValunError('bad_arguments', ('missing argument: ' if len(missing) == 1 else 'missing arguments: ')
-                            + ', '.join(f'{k} ({ARGUMENT_WORDS[k]})' for k in missing) + ('; nothing was signed' if signs else ''))
+                            + ', '.join(f'{k} ({w[k]})' for k in missing) + ('; nothing was signed' if signs else ''))
     return [a[k] for k in keys]
 
 
+def tool_arguments(name, args):
+    """The arguments of a call of the tool `name` (one of TOOL_NAMES), as its handler takes them: {} when there are none
+    (absent or null), else the JSON object given, itself. Fix inbox #58: arguments that are not a JSON object, or that
+    lack one of the tool's required arguments (REQUIRED_ARGUMENTS, its schema's `required`; null counts as missing), are
+    refused with bad_arguments naming each one missing and what it is, before anything is read or signed, so no tool can
+    fail on them later (an internal_error). The refusal ends in '; nothing was signed' for the tools that are not
+    read-only. ValunAgent checks it where every call comes in: call(), and prepare_or_refusal() for the adapters that ask
+    the owner before a commitment, which answers the same refusal instead of asking (prepare() refuses such a call too,
+    approval_unbound with the cause bad_arguments). is_commitment() does not look at it: its classification stays fail
+    closed, by name and by value."""
+    signs = name not in READ_ONLY_TOOLS
+    a = {} if args is None else args
+    if not isinstance(a, dict):
+        raise vc.ValunError('bad_arguments', 'the arguments are not a JSON object' + ('; nothing was signed' if signs else ''))
+    _required(a, REQUIRED_ARGUMENTS.get(name, ()), signs=signs, words=ARGUMENT_WORDS_OF.get(name))
+    return a
+
+
 # valun_check_payer (budget cards): the summary's first word for each verdict the server gives, and its words when the
-# server gives no reasons.
+# server gives no reasons; and the words for the payee's own side of the step (payee_side) when it would not simply go
+# ahead and the server gives no reasons for it.
 CHECK_LEAD = {'accept': 'Accept', 'ask_owner': "Ask the payer's owner", 'decline': 'Decline'}
 CHECK_FALLBACK = {'accept': "its owner's budget card allows this IOU",
                   'ask_owner': "the payer's owner approves an IOU this size before it binds",
                   'decline': "its owner's budget card does not allow this IOU"}
+CHECK_PAYEE_SIDE = {'decline': 'your own limits refuse it', 'ask_owner': 'your owner approves it before it binds'}
+# A deal id as the server writes one (the offer under review, deal=; counted_offers).
+_OFFER_ID = re.compile(r'vd_[0-9a-f]{16}')
+
+
+def _summary_parts(reasons):
+    """The server's reasons for a summary: each a text put on one line without its final stop; the others left out."""
+    return [p for p in (' '.join(r.split()).rstrip(' .;,') for r in (reasons if isinstance(reasons, list) else [])
+                        if isinstance(r, str)) if p]
+
+
+def _safe_whole(v):
+    return _whole(v) and -nv.MAX_SAFE_INTEGER <= v <= nv.MAX_SAFE_INTEGER
+
+
+def offers_counted_at(v):
+    """For a check of a new deal (an answer that names no deal_id): the deal ids of the payer's open offers to this agent
+    that the answer says its outstanding already counts (counted_offers [{deal_id, amount}], fix inbox #60), at exactly
+    the amount checked, as listed. An entry that is not {deal_id: a deal id, amount: a whole number} is left out."""
+    v = v if isinstance(v, dict) else {}
+    amount, rows = v.get('amount'), v.get('counted_offers')
+    if 'deal_id' in v or not _safe_whole(amount) or not isinstance(rows, list):
+        return []
+    return [o['deal_id'] for o in rows if isinstance(o, dict) and isinstance(o.get('deal_id'), str)
+            and _OFFER_ID.fullmatch(o['deal_id']) and _safe_whole(o.get('amount')) and o['amount'] == amount]
 
 
 def check_summary(v):
@@ -531,27 +591,49 @@ def check_summary(v):
     budget (31 of 40 left), backed for you up to 3.' The reasons are the server's, each put on one line without its final
     stop; without any, the words of CHECK_FALLBACK. The cover is named only when cover.covered is a whole number above 0
     (the server shows it only to the payee itself, and null means not shown, never 0), and only for accept and ask_owner:
-    a declined IOU would not be issued at all. A verdict this client does not know reads Unknown."""
+    a declined IOU would not be issued at all. A verdict this client does not know reads Unknown.
+
+    Fix inbox #60: a check of a new deal (no deal_id) at the price of an offer the payer made this agent is not a check
+    of that offer, which the payer's outstanding already counts: the answer is for a new deal on top of it. So when the
+    answer's counted_offers has offers at exactly the amount checked (offers_counted_at), the summary says so after the
+    verdict and gives the call that answers for the offer: 'Decline, for a new deal on top of the offer you received at
+    this price (vd_..., already counted): ... To check that offer itself, call valun_check_payer again with deal_id
+    vd_...'. Several such offers are listed, and the call is with one of their deal_ids.
+
+    The payee's own side of the step (payee_side, which the server shows only to the payee itself): when it is decline
+    (the payee's own limits refuse it) or ask_owner (the payee's owner decides first), the summary ends with 'Your own
+    side: ' and its reasons (or the words of CHECK_PAYEE_SIDE), so an Accept for the payer never reads as one for you."""
     v = v if isinstance(v, dict) else {}
     verdict = v.get('verdict') if isinstance(v.get('verdict'), str) else None
-    reasons = v.get('reasons') if isinstance(v.get('reasons'), list) else []
-    parts = [p for p in (' '.join(r.split()).rstrip(' .;,') for r in reasons if isinstance(r, str)) if p]
+    parts = _summary_parts(v.get('reasons'))
     if not parts:
         parts = [CHECK_FALLBACK.get(verdict, 'the server gave no verdict this client knows')]
     covered = v['cover'].get('covered') if isinstance(v.get('cover'), dict) else None
     if verdict in ('accept', 'ask_owner') and _whole(covered) and 0 < covered <= nv.MAX_SAFE_INTEGER:
         parts.append(f'backed for you up to {covered}')
-    return f"{CHECK_LEAD.get(verdict, 'Unknown')}: {', '.join(parts)}."
+    lead, offers = CHECK_LEAD.get(verdict, 'Unknown'), offers_counted_at(v)
+    if len(offers) == 1:
+        out = (f'{lead}, for a new deal on top of the offer you received at this price ({offers[0]}, already counted): '
+               f"{', '.join(parts)}. To check that offer itself, call valun_check_payer again with deal_id {offers[0]}.")
+    elif offers:
+        out = (f"{lead}, for a new deal on top of the {len(offers)} offers you received at this price ({', '.join(offers)}, "
+               f"already counted): {', '.join(parts)}. To check one of them, call valun_check_payer again with its deal_id.")
+    else:
+        out = f"{lead}: {', '.join(parts)}."
+    side = v.get('payee_side') if isinstance(v.get('payee_side'), dict) else {}
+    if isinstance(side.get('verdict'), str) and side['verdict'] in CHECK_PAYEE_SIDE:
+        out += f" Your own side: {', '.join(_summary_parts(side.get('reasons')) or [CHECK_PAYEE_SIDE[side['verdict']]])}."
+    return out
 
 
-def unchecked_payer(payer, amount):
+def unchecked_payer(payer, amount, deal_id=None):
     """valun_check_payer's answer when the payer's owner has not published a budget card (card_not_public): an answer,
-    not an error, with verdict 'unknown'."""
+    not an error, with verdict 'unknown' (and the offer under review, deal_id, when the check named one)."""
     who = shown(payer.get('handle') or payer.get('id'))
     return {'summary': (f"Unknown: {who}'s owner has not published a budget card, so its budget cannot be checked; decide "
                         'from its record (valun_directory) or ask your owner.'),
             'verdict': 'unknown', 'reasons': ["the payer's owner has not published a budget card"], 'rule': None, 'payer': payer,
-            'amount': amount}
+            'amount': amount, **({} if deal_id is None else {'deal_id': deal_id})}
 
 
 def _party(g, role, terms):
@@ -611,10 +693,53 @@ def _page_arg(a, k, default, what):
     raise vc.ValunError('bad_arguments', f"{k} must be a whole number ({what}), not {got if len(got) <= 40 else got[:37] + '...'}")
 
 
+def service_text(svc):
+    """A service's title, description and deliverable as the client reads their numeric requirements
+    (measure.requirements): each without its fenced blocks (valun.fences), then joined by spaces. Read one by one, a
+    field's fences never share a line with another field's text (fix inbox #70). Joined first, a description that ends at
+    its closing fence would put the deliverable on that fence's line, so the block would not close and the deliverable
+    would be read as quoted; one that starts with a fence would have the title on its opening line. The ``` ... ```
+    quotes left are taken out of the joined text, so for plain ``` blocks the requirements are those valun 0.7.0 read."""
+    return ' '.join(fences.without(str(svc.get(k) or '')) for k in ('title', 'description', 'deliverable'))
+
+
 def terms_text(d):
-    """The agreed (or current) service text: where numeric requirements such as '300-500 words' are written."""
+    """The agreed (or current) service text: where numeric requirements such as '300-500 words' are written
+    (service_text)."""
     t = ((d.get('current') or {}).get('terms') or {}).get('service') or {}
-    return ' '.join(str(t.get(k) or '') for k in ('title', 'description', 'deliverable'))
+    return service_text(t)
+
+
+# Fix inbox #35 (the clients' half of #32): every tool's answer gives each amount a unit-neutral name, by the rule the
+# server's public answers follow (valun-app lib/pilot/amount-names.mjs). The network names its unit once (valun_status
+# `unit`: nanoERG on the testnet), so an amount's name need not carry it, and an agent reading `you_hold_PC: 2500000` on
+# the testnet should not report "2,500,000 PC". The `_PC` and `PC` names stay, as deprecated aliases with the same
+# values, until a later release removes them, announced in the fix inbox and the changelog first.
+_PC_SUFFIX = '_PC'
+
+
+def _neutral_name(k):
+    if k == 'PC':
+        return 'amount'
+    return k[:-len(_PC_SUFFIX)] if isinstance(k, str) and len(k) > len(_PC_SUFFIX) and k.endswith(_PC_SUFFIX) else None
+
+
+def with_unit_neutral_names(v):
+    """A tool's answer with each amount under its unit-neutral name too, at any depth: every key `<name>_PC` gets
+    `<name>` just before it, and the `PC` of a {count, PC} tally gets `amount`, with the same value. A name already
+    present is never overwritten, and a value that is not an object or an array passes through unchanged (a tuple is an
+    array, as in JSON). The answer given is not changed: its objects and arrays are copied."""
+    if isinstance(v, (list, tuple)):
+        return [with_unit_neutral_names(x) for x in v]
+    if not isinstance(v, dict):
+        return v
+    out = {}
+    for k, x in v.items():
+        y, n = with_unit_neutral_names(x), _neutral_name(k)
+        if n and n not in v and n not in out:
+            out[n] = y
+        out[k] = y
+    return out
 
 
 def error_payload(e, setup_hint='run `valun join` (or `valun enroll`) in a terminal'):
@@ -733,22 +858,25 @@ class ValunAgent:
         return c
 
     def call(self, name, args=None):
-        """Run one tool. Returns a dict; raises ValunError (use error_payload to turn it into a result). Before a tool
-        that is not read-only, the client signs the consents its owner's policy allows (consents_if_due). With
-        consents_on_reads, before valun_status and valun_inbox it signs the value-safe ones (consents_on_read), and when
-        that run took place the result adds consents_signed_now: one entry (SIGNED_NOW_KEYS) for each consent it signed
-        ([]: none)."""
+        """Run one tool. Returns a dict; raises ValunError (use error_payload to turn it into a result). Its arguments
+        are checked first (tool_arguments, fix inbox #58: bad_arguments for arguments that are not a JSON object or lack
+        a required one, before anything is read or signed). Before a tool that is not read-only, the client signs the
+        consents its owner's policy allows (consents_if_due). With consents_on_reads, before valun_status and
+        valun_inbox it signs the value-safe ones (consents_on_read), and when that run took place the result adds
+        consents_signed_now: one entry (SIGNED_NOW_KEYS) for each consent it signed ([]: none). Every amount of the
+        result has its unit-neutral name too (with_unit_neutral_names, fix inbox #35)."""
         if name not in self.handlers:
             raise vc.ValunError('unknown_tool', f'no Valun tool called {name!r}')
+        a = tool_arguments(name, args)
         if name not in READ_ONLY_TOOLS:
             self.consents_if_due()
-            return self.handlers[name](args or {})
+            return with_unit_neutral_names(self.handlers[name](a))
         report = self.consents_on_read() if name in CONSENTS_ON_READ_TOOLS else None
-        out = self.handlers[name](args or {})
+        out = self.handlers[name](a)
         if report is not None and isinstance(out, dict):
             out['consents_signed_now'] = [{k: e.get(k) for k in SIGNED_NOW_KEYS} for e in report.get('signed') or []
                                           if isinstance(e, dict)]
-        return out
+        return with_unit_neutral_names(out)
 
     def consents_if_due(self, now_ms=None):
         """Process consents (Client.process_consents: set-offs, transfers of my own debt, payments to me, regenerated
@@ -924,16 +1052,16 @@ class ValunAgent:
         refuses another quote or claim (stale_quote, stale_claim).
 
         Raises ValunError('approval_unbound') when what would be signed cannot be read or checked (any error, a missing
-        or wrong hash, or a pin the agent passed that is not the snapshot's): the adapter must then refuse the call.
-        A tool this client does not know gets a generic text; a known commitment never does."""
+        or wrong hash, or a pin the agent passed that is not the snapshot's; with the cause bad_arguments, before any
+        read, for arguments the tool refuses: tool_arguments): the adapter must then refuse the call. A tool this client
+        does not know gets a generic text; a known commitment never does."""
         a = dict(args) if isinstance(args, dict) else {}
         if name not in self.handlers:
             return {'args': a, 'text': GENERIC_TEXT.format(name=shown(name))}
         if not self._may_commit(name, a):
             return {'args': a, 'text': None}
         try:
-            if args is not None and not isinstance(args, dict):
-                raise vc.ValunError('bad_arguments', 'the arguments are not a JSON object')
+            tool_arguments(name, args)               # fix inbox #58: not a JSON object, or a required argument missing
             render = self._text_for(name, a)          # before any read: a misspelt action or decision has no text
             snap = self._snapshot(name, a)
             if name in LIMIT_TOOLS and not loosens(snap['me'].get('agent_limits') or {}, limits_body(a)):
@@ -950,7 +1078,13 @@ class ValunAgent:
         the result to return instead of asking when what would be signed cannot be read or checked: the owner is then
         never asked with a generic text, and nothing is signed (approval_unbound, with the code of the cause). A profile
         that is not connected or configured, or whose pinned tracker the server no longer names, gets that refusal
-        itself (not_connected, not_configured, tracker_mismatch), with its own advice."""
+        itself (not_connected, not_configured, tracker_mismatch), with its own advice, and so do arguments the tool
+        refuses before anything is read (tool_arguments: bad_arguments, as the call itself answers; fix inbox #58)."""
+        if name in TOOL_NAMES:
+            try:
+                tool_arguments(name, args)
+            except vc.ValunError as e:
+                return None, error_payload(e, self.setup_hint)
         extra = {}
         try:
             prepared = self.prepare(name, args)
@@ -1440,7 +1574,7 @@ class ValunAgent:
         chk = snap['checked']
         t, who, price, svc, dl, content = chk['terms'], self._who(chk), chk['price'], chk['service'], chk['delivery'], chk['content']
         u = snap.get('unit', vc.UNIT)
-        m = measure.measure(content, ' '.join(str(svc.get(k) or '') for k in ('title', 'description', 'deliverable')), check_hosts=False)
+        m = measure.measure(content, service_text(svc), check_hosts=False)
         facts = [f"{x['requirement']}: {x['measured']} ({'met' if x['met'] else 'NOT met'})" for x in m['checks_against_agreed_terms']]
         try:
             exact = sandbox.check_delivery(t, content)
@@ -1472,7 +1606,7 @@ class ValunAgent:
         issuer = shown(iss['handle']) if isinstance(iss.get('handle'), str) and iss['handle'] else shown(iss['id'])
         x, y = tr['claim'], tr['to_prior']
         speed = tr['option'].get('issuer_consents')
-        m = measure.measure(content, ' '.join(str(svc.get(k) or '') for k in ('title', 'description', 'deliverable')), check_hosts=False)
+        m = measure.measure(content, service_text(svc), check_hosts=False)
         facts = [f"{x_['requirement']}: {x_['measured']} ({'met' if x_['met'] else 'NOT met'})" for x_ in m['checks_against_agreed_terms']]
         try:
             exact = sandbox.check_delivery(t, content)
@@ -1916,19 +2050,26 @@ class ValunAgent:
         """valun_check_payer (read only): may `payer` owe this agent `amount` more, by the budget card its owner published?
         The server's verdict object (Client.check_payer, with this agent's token: it shows the cover only to the payee
         itself) with `summary` first (check_summary). The amount is checked as valun_propose checks its price (_count),
-        before anything is read. A payer whose owner has not published a card gets verdict 'unknown' (unchecked_payer):
-        an answer, not an error."""
+        before anything is read, and so is deal_id (fix inbox #60: the offer under review, which the server then counts
+        once; vd_ + 16 hex). Without deal_id the answer is for a new deal on top of what the payer committed, and the
+        summary says when an offer the payer made this agent at that price is among it (check_summary). A payer whose
+        owner has not published a card gets verdict 'unknown' (unchecked_payer): an answer, not an error."""
         c = self.client()
         payer, = _required(a, ('payer',), signs=False)
         if not isinstance(payer, str) or not payer.strip():
             raise vc.ValunError('bad_arguments', 'payer must be the handle or participant id (text) of the agent that would owe you')
         amount = _count('amount', a.get('amount'), getattr(c, 'unit', vc.UNIT))
+        deal_id = a.get('deal_id')
+        if deal_id is not None and not (isinstance(deal_id, str) and _OFFER_ID.fullmatch(deal_id)):
+            got = quoted(deal_id)
+            raise vc.ValunError('bad_arguments', 'deal_id must be the id of the offer you are deciding on, vd_ + 16 hex as valun_inbox '
+                                                 f"lists it, not {got if len(got) <= 40 else got[:37] + '...'}")
         ref = c.resolve_participant(payer)
         try:
-            v = c.check_payer(ref['id'], amount)
+            v = c.check_payer(ref['id'], amount, deal_id=deal_id)
         except vc.ValunError as e:
             if e.code == 'card_not_public':
-                return unchecked_payer(ref, amount)
+                return unchecked_payer(ref, amount, deal_id)
             raise
         if not isinstance(v, dict):
             raise vc.ValunError('bad_response', 'the server answered the check with no verdict')
