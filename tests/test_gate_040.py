@@ -113,7 +113,9 @@ class GateLikeTheCore(unittest.TestCase):
     def test_every_tool_is_classified_as_the_core_classifies_it(self):
         """0.7.1 (fix inbox #58): a commitment whose arguments the core refuses (va.tool_arguments: one the tool requires
         is missing or null) is blocked with the core's own refusal, bad_arguments, as the core's adapters answer it
-        instead of asking: nothing is prepared, bound or asked. Every other commitment is asked with prepare()'s text."""
+        instead of asking: nothing is prepared, bound or asked. Every other commitment is asked with prepare()'s text.
+        0.7.2: the core also refuses an argument of the wrong type or value there, with the tool's own code where it
+        has one (a misspelt action, bad_action; a misspelt review decision, bad_decision)."""
         self.assertEqual(sorted(ARGS), sorted(t['name'] for t in schemas.ALL))
         core = va.ValunAgent(tools.HermesStore(self.ctx))
         seen = {True: 0, False: 0, 'refused': 0}
@@ -135,8 +137,8 @@ class GateLikeTheCore(unittest.TestCase):
                         self.assertRegex(out['rule_key'], rf'^valun:{name}:[0-9a-f]{{16}}$')
                     elif commits:
                         seen['refused'] += 1
-                        self.assertEqual(refused.code, 'bad_arguments')
-                        self.assertEqual(out, {'action': 'block', 'message': f'{tools.BLOCK_TEXT} (bad_arguments) {refused}'})
+                        self.assertIn(refused.code, ('bad_arguments', 'bad_action', 'bad_decision'))
+                        self.assertEqual(out, {'action': 'block', 'message': f'{tools.BLOCK_TEXT} ({refused.code}) {refused}'})
                         self.assertEqual(len(self.prepared), prepared, 'refused before prepare(): nothing is read')
                         self.assertNotIn(tools._call_key(name, args), tools._BOUND, 'nothing is bound for the handler')
                     else:

@@ -232,7 +232,7 @@ your profile's name). Without `-p` it talks to the default Hermes profile.
 The same tools are available to any MCP client (Claude Desktop, Claude Code, Cursor, VS Code, ...) and from any
 shell, through [valun-open](https://github.com/fitzss/valun-open): `pip install valun` (then `valun mcp`, `valun call`),
 and for JavaScript agents `npm install @fitzdoud/valun`. This plugin carries the same core (`valun_core/`: the files of
-the `valun` package 0.7.1, copied unchanged, so the plugin needs nothing installed besides Hermes).
+the `valun` package 0.7.2, copied unchanged, so the plugin needs nothing installed besides Hermes).
 
 ## Disclosure
 
@@ -249,14 +249,18 @@ the `valun` package 0.7.1, copied unchanged, so the plugin needs nothing install
   off, or every role off, it sends the empty list once, so the server forgets the roles it declared before). The owner
   commands use your owner token once, for `GET /pilot/v1/owner`, `PUT /pilot/v1/owner/mandate` (join) and
   `POST /pilot/v1/owner/deals/{deal}/attempts/{attempt}/resolve` (attempts resolve). `hermes valun profile` reads
-  `GET /pilot/v1/me` and changes `PUT /pilot/v1/profile`, with the agent's token. Nothing else.
+  `GET /pilot/v1/me` and changes `PUT /pilot/v1/profile`, with the agent's token. Nothing else. Since 0.7.2 the tokens
+  go only to that server, never to an address a redirect names, and over plain http only to a server on this machine:
+  for an `http://` `server_url` on another machine, nothing that carries a token (or whose answer carries one: a join,
+  an enrollment) is sent (`plain_http`), unless `VALUN_ALLOW_PLAIN_HTTP=1` is set where Hermes runs.
 - **Stored credentials:** `VALUN_AGENT_TOKEN` and `VALUN_SIGNING_SECRET`, stored in the profile's `.env` by
   `hermes valun join` (or `enroll`) via `hermes config set`, read only through `agent.secret_scope.get_secret`. The owner
   token is never stored by the plugin.
 - **Local data:** `plugin-data/valun/valun-records.json`, your client's own records (no secrets): the credit notes and
   payments it signed and their outcomes, what it signed for debt transfers and set-offs, the tracker and unit it is
   pinned to, its consent policy, its last 100 consent decisions, when it last ran its consent checks and the consent
-  roles the server last took from it. Changes go through a lock file next to it (`valun-records.json.lock`). Since 0.4.0
+  roles the server last took from it, and (since 0.7.2) the participant whose sandbox tour `valun_status` saw done.
+  Changes go through a lock file next to it (`valun-records.json.lock`). Since 0.4.0
   it starts from 0.3's `plugin-data/valun/issued-notes.json`, which is left in place and no longer read. If the file
   cannot be read, your client signs nothing until it is fixed (`doctor` says how); it is never replaced by empty
   records. Inside Hermes the records never live in memory only: if Hermes's plugin storage cannot be loaded, the
@@ -276,7 +280,7 @@ the `valun` package 0.7.1, copied unchanged, so the plugin needs nothing install
 - **Approvals:** they depend on Hermes's approval gate. Do not run a Valun agent with `--yolo` or `approvals.mode: off`:
   either would let it sign commitments without asking you.
 
-## Known limits (0.7.1)
+## Known limits (0.7.2)
 
 - **Approvals are matched to calls by tool name and exact arguments.** Hermes gives the hook a call id but not the
   handler, so the binding the hook prepared is found by the call's name and arguments, and the newest one wins. Two

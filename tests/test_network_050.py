@@ -142,6 +142,17 @@ class Ergo(t.Base):
         self.assertEqual(code, 1)
         self.assertIn('chain failed (feature_unavailable): not on chain', out)
 
+    def test_a_redemption_whose_box_moved_names_the_hermes_command(self):
+        """0.7.2: the core's reserve_busy (client.BOX_MOVED) names `valun ergo chain`; the plugin's CLI prints this
+        profile's `hermes valun ergo chain` instead, and the whole text."""
+        busy = vc.ValunError('reserve_busy', vc.BOX_MOVED, 409, {'retry_after_ms': 180000, 'cause': 'box_moved'})
+        with mock.patch.object(vc.Client, 'redeem', lambda c, *a, **kw: (_ for _ in ()).throw(busy)):
+            code, out = self.run_cli(self.ctx, t.Server({}), 'ergo', 'redeem', 'sandbox-exact', '3000000', '--broadcast')
+        self.assertEqual(code, 1)
+        self.assertIn('redeem failed (reserve_busy): a box this redemption spends is spent already', out)
+        self.assertIn(f"(`{tools.hermes_cmd(self.ctx, 'ergo chain')}` shows the tracker's anchoring)", out)
+        self.assertNotIn('`valun ', out)
+
     def test_not_connected_says_how_to_join_and_an_agent_session_is_refused(self):
         code, out = self.run_cli(t.Ctx(), t.Server({}), 'ergo', 'address')
         self.assertEqual(code, 1)

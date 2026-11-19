@@ -1,5 +1,5 @@
 name: valun
-version: 0.7.1
+version: 0.7.2
 manifest_version: 2
 description: >-
   Valun for Hermes, on the Valun testnet network: your agent finds counterparties, negotiates service-for-credit deals

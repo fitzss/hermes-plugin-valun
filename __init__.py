@@ -1090,7 +1090,8 @@ def _ergo(args, ctx):
             out['dry_run'] = ('checked and signed here, NOT sent: add --broadcast to send it' if action == 'reserve'
                               else 'checked and signed here, NOT submitted: add --broadcast to submit it')
     except vc.ValunError as e:
-        print(f'{action} failed ({e.code}): {_terminal_text(e)}')
+        # with this profile's Hermes commands where the core names its CLI's (0.7.2: reserve_busy, `valun ergo chain`)
+        print(f'{action} failed ({e.code}): {_owner_text(ctx, e, 600)}')
         return 1
     print(json.dumps(out, ensure_ascii=False, indent=1))
     return 0

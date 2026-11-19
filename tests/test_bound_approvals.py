@@ -38,6 +38,7 @@ class Ctx:
 
 
 CORE = tools.va.ValunAgent(None)        # the real core, for its classification (it makes no read for these tools)
+DEAL = 'vd_0000000000000001'            # 0.7.2: the core refuses a deal_id that is not vd_ + 16 hex (fix inbox #58)
 
 
 class FakeAgent:
@@ -87,7 +88,7 @@ class BoundApprovals(unittest.TestCase):
         tools._BOUND.clear()
 
     def test_the_owner_sees_the_hash_that_is_signed(self):
-        args = {'deal_id': 'vd_1', 'action': 'accept'}
+        args = {'deal_id': DEAL, 'action': 'accept'}
         ask = self.gate('valun_respond', args)
         self.assertEqual(ask['action'], 'approve')
         self.assertIn('h1', ask['message'])
@@ -95,7 +96,7 @@ class BoundApprovals(unittest.TestCase):
         self.assertEqual(FakeAgent.signed[-1][1]['expected_terms_hash'], 'h1')
 
     def test_a_counter_offer_after_approval_is_refused_not_signed(self):
-        args = {'deal_id': 'vd_1', 'action': 'accept'}
+        args = {'deal_id': DEAL, 'action': 'accept'}
         self.gate('valun_respond', args)            # owner shown h1
         FakeAgent.world['hash'] = 'h2'              # the other side counters before the signature
         self.assertEqual(json.loads(self.respond(dict(args))), {'error': 'terms_changed'})
@@ -104,7 +105,7 @@ class BoundApprovals(unittest.TestCase):
     def test_a_binding_is_used_once(self):
         # 0.4.0: a commitment the hook did not bind (here: a second call without a new approval) is refused, never
         # signed unpinned (replaces 0.3.0's unpinned fallback).
-        args = {'deal_id': 'vd_1', 'action': 'accept'}
+        args = {'deal_id': DEAL, 'action': 'accept'}
         self.gate('valun_respond', args)
         self.respond(dict(args))
         self.assertEqual(len(FakeAgent.signed), 1)
@@ -114,14 +115,14 @@ class BoundApprovals(unittest.TestCase):
         self.assertEqual(tools._BOUND, {})
 
     def test_harmless_calls_are_not_pinned(self):
-        args = {'deal_id': 'vd_1', 'action': 'decline'}
+        args = {'deal_id': DEAL, 'action': 'decline'}
         self.assertIsNone(self.gate('valun_respond', args))
         self.respond(dict(args))
         self.assertEqual(FakeAgent.signed[-1][1], args)
         self.assertEqual(tools._BOUND, {})
 
     def test_the_agents_own_hash_is_kept(self):
-        args = {'deal_id': 'vd_1', 'action': 'accept', 'expected_terms_hash': 'h0'}
+        args = {'deal_id': DEAL, 'action': 'accept', 'expected_terms_hash': 'h0'}
         ask = self.gate('valun_respond', args)
         self.assertIn('h0', ask['message'])
         self.respond(dict(args))

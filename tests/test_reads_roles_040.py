@@ -6,8 +6,10 @@ every consent role off, its next request withdraws the consent roles it declared
 /info reports the tracker v3.2 contract; otherwise it waits (feature_unavailable). Also: results name this profile's Hermes commands where the core names its CLI's; inside
 Hermes without its plugin storage the records are unreadable (never memory-only); the consents.max_PC setting.
 
-Offline: every request goes through the real Client.request and urllib into a fake v16 server (Wire) with its tracker
-states, real signatures and throwaway keys."""
+Offline: every request goes through the real Client.request into a fake v16 server (Wire) at an https:// address, with
+its tracker states, real signatures and throwaway keys. The Wire answers in place of Client._open, where the core's
+Client (valun 0.7.2) sends each request: through its own opener, never urllib.request.urlopen, so patching urlopen no
+longer reaches a request to the server."""
 import argparse
 import copy
 import importlib.util
@@ -42,7 +44,7 @@ tools.data_dir = lambda: None
 tools.secret_value = lambda name: None
 REAL_REQUEST = vc.Client.request
 
-SERVER = 'http://valun.invalid'
+SERVER = 'https://valun.invalid'    # https: valun 0.7.2 sends no token over plain http to another machine (plain_http)
 AGENT_TOKEN = 'vpa_test-only'                               # throwaway
 NFT = '42' * 32
 DENOM = 'token:' + 'ab' * 32
@@ -259,7 +261,7 @@ class Base(unittest.TestCase):
         self.patches = [mock.patch.object(tools, 'data_dir', lambda: self.dir),
                         mock.patch.object(tools, 'secret_value', lambda n: secrets_.get(n)),
                         mock.patch.object(vc.Client, 'request', REAL_REQUEST),
-                        mock.patch.object(vc.urllib.request, 'urlopen', self.wire.urlopen)]
+                        mock.patch.object(vc.Client, '_open', lambda c, req: self.wire.urlopen(req, timeout=c.timeout))]
         for p in self.patches:
             p.start()
 
@@ -452,8 +454,23 @@ class RolesWithdrawn(Base):
 
 
 # The core-CLI commands the vendored core names only in its docstrings and comments (never in a text for the agent or
-# the owner): `valun attempts` in a comment of client.py on NEVER_APPLIED_TRANSFER (valun-open c2e0847).
-DOCSTRING_ONLY = ('`valun attempts`', '`valun call`', '`valun config approvals`', '`valun sandbox seller`')
+# the owner): `valun attempts` in a comment of client.py on NEVER_APPLIED_TRANSFER (valun-open c2e0847). 0.7.2: `valun
+# --profile NAME` (client.profile_name_of), `valun config server` and `valun config server http://` (client.py, on
+# wrong_server_refusal and server URLs), `valun console` (agent.owner_wait: the plugin passes no console_command, so no
+# answer names one), and the sandbox commands in comments of agent.py (TOUR_DONE_KEY) and sandbox.py.
+DOCSTRING_ONLY = ('`valun attempts`', '`valun call`', '`valun config approvals`', '`valun sandbox seller`',
+                  '`valun --profile NAME`', '`valun config server`', '`valun config server http://`', '`valun console`',
+                  '`valun sandbox buy`', '`valun sandbox earn`', '`valun sandbox tour`')
+# 0.7.2: core texts that name a core-CLI command but never reach a plugin answer, each for the reason its test checks:
+# the default rejoin_hint (agent.DEFAULT_REJOIN_HINT; the plugin passes tools.REJOIN_HINT), and the words of
+# client.wrong_server_refusal and profile_server_refusal, which need a FileStore (its profile_server, or its file in a
+# 'profiles' folder): the plugin's store, HermesStore, has neither.
+NOT_IN_HERMES = {
+    '`valun --profile NAME join --sandbox --handle HANDLE --operator "YOUR NAME" --owner-token-file FILE`': 'rejoin_hint',
+    '`valun --profile {name} config server URL`': 'file_store',
+    '`valun --profile {name} config server {server}`': 'file_store',
+    '`valun config server URL`': 'file_store',
+}
 
 
 class HermesCommands(Base):
@@ -510,9 +527,47 @@ class HermesCommands(Base):
                 src = re.sub(r"""['"]\s*\n\s*['"]""", '', src)        # adjacent string literals, joined
                 found |= set(re.findall(r'`valun [^`]*`', src))
         mapped = {core for core, *_rest in tools.CORE_COMMANDS}
-        self.assertEqual(sorted(found - mapped - set(DOCSTRING_ONLY)), [])
+        phrased = {c for words, _h in tools.CORE_PHRASES for c in re.findall(r'`valun [^`]*`', words)}
+        self.assertEqual(sorted(found - mapped - phrased - set(DOCSTRING_ONLY) - set(NOT_IN_HERMES)), [])
         for core in mapped:
             self.assertNotIn('`valun ', tools.hermes_words(Ctx(), f'see {core}.'), core)
+
+    def test_the_plugin_passes_its_own_rejoin_hint(self):
+        """0.7.2: network_retired's what_this_means names the plugin's join in a new Hermes profile (tools.REJOIN_HINT),
+        never the core CLI's (agent.DEFAULT_REJOIN_HINT); the join it names is one the plugin's parser takes."""
+        self.assertEqual(tools.agent_for(Ctx()).rejoin_hint, tools.REJOIN_HINT)
+        text = va.retired_text(va.TESTNET, tools.REJOIN_HINT)
+        self.assertNotIn('`valun ', text)
+        self.assertIn('`hermes profile create NAME --no-alias`', text)
+        join = re.search(r'`hermes -p NAME valun (join [^`]*)`', text).group(1)
+        p = argparse.ArgumentParser(prog='hermes valun')
+        plugin._setup_cli(p, None)
+        a = p.parse_args(['join', '--sandbox', '--handle', 'HANDLE', '--operator', 'YOUR NAME', '--owner-token-file', 'FILE'])
+        self.assertEqual(join, 'join --sandbox --handle HANDLE --operator "YOUR NAME" --owner-token-file FILE')
+        self.assertTrue(a.sandbox)
+
+    def test_the_wrong_server_words_need_a_file_store(self):
+        """0.7.2: client.wrong_server_refusal applies only to a store that names its profile's server (FileStore
+        profile_server), and profile_server_refusal names `valun --profile NAME` only for a FileStore's file in a
+        'profiles' folder (client.profile_name_of). HermesStore is neither, so no plugin answer carries those words."""
+        store = tools.HermesStore(Ctx())
+        self.assertIsNone(getattr(store, 'profile_server', None))
+        self.assertIsNone(vc.profile_name_of(store))
+        self.assertEqual(set(NOT_IN_HERMES.values()), {'rejoin_hint', 'file_store'})
+
+    def test_an_issued_ious_plain_ending_names_no_core_command(self):
+        """0.7.2: the plain ending the core writes for an issued IOU when the server sends none (agent.note_summary, the
+        `summary` of valun_deal and valun_review_delivery) names `valun audit --mine` on the testnet; hermes_result drops
+        those words (CORE_PHRASES) and keeps the public check before them."""
+        d = {'status': 'note_issued', 'credit_note': {'amount': 5, 'confirmation': 'pending'},
+             'counterparty': {'handle': 'sandbox-exact'}, 'your_role': 'payer'}
+        core = va.note_summary(d, va.TESTNET, 'nanoERG', False, SERVER)
+        for words, _h in tools.CORE_PHRASES:
+            self.assertIn(words, core, 'the core still writes these words')
+        out = tools.hermes_result(Ctx(), {'summary': core})
+        self.assertNotIn('`valun ', out['summary'])
+        self.assertIn(f'Check it: the row from you to sandbox-exact in GET {SERVER}/pilot/v1/ledger (its total and '
+                      'confirmation). It stays outstanding', out['summary'])
 
     def test_the_hermes_commands_named_exist(self):
         """Each Hermes command hermes_words and how_to_change name: a `hermes valun` subcommand the plugin's parser takes,
@@ -550,11 +605,16 @@ class PluginStorage(unittest.TestCase):
 
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix='valun-plugin-test-')
-        self.net = mock.patch.object(vc.urllib.request, 'urlopen', side_effect=AssertionError('no request expected'))
-        self.net.start()
+        # No request at all: none to the server (Client._open, where the core sends each one) and none elsewhere
+        # (urllib.request.urlopen, which the core's Ergo node reads use)
+        self.net = [mock.patch.object(vc.Client, '_open', side_effect=AssertionError('no request expected')),
+                    mock.patch.object(vc.urllib.request, 'urlopen', side_effect=AssertionError('no request expected'))]
+        for p in self.net:
+            p.start()
 
     def tearDown(self):
-        self.net.stop()
+        for p in self.net:
+            p.stop()
         shutil.rmtree(self.dir, ignore_errors=True)
 
     def modules(self, hermes, storage):

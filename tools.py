@@ -71,7 +71,22 @@ CORE_COMMANDS = (
     ('`valun doctor`', 'valun', 'doctor', ''),
     ('`valun policy show`', 'valun', 'status', ''),
     ('`valun clearing run`', 'valun', 'consents --process', ''),
+    ('`valun ergo chain`', 'valun', 'ergo chain', ''),           # 0.7.2: reserve_busy (a box moved), client.BOX_MOVED
 )
+# Core words about a core-CLI command the plugin has no counterpart of (hermes_words removes them): (core words, Hermes
+# words). 0.7.2: the plain ending of an issued IOU the core writes when the server sends none (agent.note_summary) also
+# names `valun audit --mine`, which checks the valun package's own profile, not this plugin's records; the public check
+# before it (the pair's row in GET /ledger, which the server's own summary names too) stays.
+CORE_PHRASES = (
+    (', and `valun audit --mine`, which checks your records against the box once the next box commits them.', '.'),
+)
+# 0.7.2 (agent.retired_text, network_retired): how the owner of a profile of the retired pilot network joins the network
+# the server now serves, in a new Hermes profile set up as the README says (the core's default names its CLI's join).
+REJOIN_HINT = ('join in a new Hermes profile, in a terminal: set one up as the Valun plugin\'s README says (`hermes '
+               'profile create NAME --no-alias`, its model, then `hermes -p NAME plugins install <the plugin\'s URL> '
+               '--enable`), then run `hermes -p NAME valun join --sandbox --handle HANDLE --operator "YOUR NAME" '
+               '--owner-token-file FILE` (NAME: a profile name not used yet; HANDLE: public and permanent; FILE: a new '
+               'file for its owner token)')
 _WORD = re.compile(r'[a-z_]{1,40}\Z')
 _CORE_AGENT = va.ValunAgent             # argument_refusal() always asks the real core, whatever stands in for it
 # Re-exported for the plugin's CLI, hook and tests.
@@ -249,6 +264,8 @@ def hermes_words(ctx, text):
     by this profile's Hermes command; any other text is returned as it is."""
     if not isinstance(text, str) or '`valun ' not in text:
         return text
+    for core, words in CORE_PHRASES:
+        text = text.replace(core, words)
     for core, sub, rest, after in CORE_COMMANDS:
         if core in text:
             cmd = setting_cmd(ctx, *rest.split(' ', 1)) if sub == 'setting' else hermes_cmd(ctx, rest)
@@ -258,15 +275,15 @@ def hermes_words(ctx, text):
 
 def hermes_result(ctx, out):
     """A core tool result with this profile's Hermes commands where the core names its CLI's: valun_status's
-    consent_policy_in_force.how_to_change (HOW_TO_CHANGE), and any what_this_means, how_to_change or message that
-    names a core-CLI command (hermes_words: attempt_outcome_unknown's `valun attempts list` and `valun attempts
-    resolve`, say). In place; returns `out`."""
+    consent_policy_in_force.how_to_change (HOW_TO_CHANGE), and any what_this_means, how_to_change, message or summary
+    (0.7.2: the plain ending of an issued IOU, agent.note_summary) that names a core-CLI command (hermes_words:
+    attempt_outcome_unknown's `valun attempts list` and `valun attempts resolve`, say). In place; returns `out`."""
     if not isinstance(out, dict):
         return out
     policy = out.get('consent_policy_in_force')
     if isinstance(policy, dict) and isinstance(policy.get('how_to_change'), str):
         policy['how_to_change'] = how_to_change(ctx)
-    for k in ('what_this_means', 'how_to_change', 'message'):
+    for k in ('what_this_means', 'how_to_change', 'message', 'summary'):
         if isinstance(out.get(k), str):
             out[k] = hermes_words(ctx, out[k])
     return out
@@ -521,7 +538,7 @@ def agent_for(ctx):
     declare_roles is left to the core (as process_consents): the plugin signs no consent by itself with it off, so its
     client then declares no consent role and withdraws the ones it declared before (decision D-3 b)."""
     store = HermesStore(ctx)
-    return va.ValunAgent(store, approvals=_approvals_text(ctx), setup_hint=setup_hint(ctx),
+    return va.ValunAgent(store, approvals=_approvals_text(ctx), setup_hint=setup_hint(ctx), rejoin_hint=REJOIN_HINT,
                          check_link_hosts=bool(ctx.get_config('check_link_hosts', default=True)),
                          process_consents=store.process_consents,
                          consents_on_reads=store.process_consents and store.unreadable is None,

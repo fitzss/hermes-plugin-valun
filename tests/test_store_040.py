@@ -66,6 +66,8 @@ VALUES = {
     # 0.6 (fix inbox #18): the calls a backer honored or is honoring, so it never pays beyond the cap it signed.
     'guarantee_honors': {'vg_' + '1' * 16: {'cap': 5, 'calls': {'vgc_' + '2' * 16: {'amount': 5, 'state': 'honored', 'total': 5,
                                                                               'timestamp': 1700000000997}}}},
+    # 0.7.2: the participant whose sandbox tour valun_status saw done (agent.TOUR_DONE_KEY)
+    'sandbox_tour_done': 'vp_5a5a5a5a5a5a',
 }
 
 

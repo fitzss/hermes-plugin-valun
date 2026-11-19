@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.7.2 (2026-11-19)
+
+### Changed
+
+- **The tokens go only to the configured server, and over plain http only to one on this machine**, from the core
+  below. A `server_url` of `http://` on another machine gets no request that carries a token, or whose answer carries
+  one (a join, an enrollment): the tools answer `plain_http`, naming its `https://` address, and nothing is sent
+  (`VALUN_ALLOW_PLAIN_HTTP=1`, in the environment Hermes runs in, opts in on a network you trust). A server on this
+  machine (127.0.0.0/8, ::1, `localhost`) is reached directly, never through a proxy. No redirect is followed (the
+  error `redirected`).
+- **Each request goes through the client's own opener** (`Client._open`): this machine's proxy settings, the server's
+  certificate checked against the CAs this machine trusts, and no redirect. What another part of the Hermes process
+  sets for urllib (`install_opener`, an unverified default https context) no longer applies to a request that carries
+  a token.
+- **The transport** (fix inbox #132): a read whose answer was cut is sent again (three tries), never a write, and never
+  a request that timed out; a cut connection and a timeout are named for what they are.
+- **Arguments of the wrong type or value are refused by name** (fix inbox #58), before anything is read, signed or
+  asked: a `deal_id` that is not `vd_` + 16 hex, a string given a number, a misspelt `action` (`bad_action`) or review
+  `decision` (`bad_decision`). The approval hook blocks such a commitment with that refusal instead of asking you.
+- **Answers that wait for your owner name the owner console** (`owner_console`) and the approval (`approval_id`); an
+  issued IOU's deal opens with a plain `summary` for both sides; `credit_note.confirmation_means` gives the server's
+  time to commit it; the exact check, and its advice to dispute, apply only to the built-in jobs; `valun_directory` lists the
+  operator's always-on agents first; `valun_status` says what `sandbox_only` means and keeps the sandbox tour done once
+  it was (`sandbox_tour_done` in valun-records.json). The full list is valun-open's CHANGELOG, 0.7.2: the entries for
+  both clients and for Python, apart from the package's own CLI (`valun join`, `valun call`, `valun audit`, `valun
+  console`, `valun doctor`), which this plugin does not carry.
+- **Hermes commands in the core's new texts:** `hermes valun ergo redeem` refused because a box moved (`reserve_busy`)
+  names `hermes valun ergo chain`, and its CLI prints the core's refusals of `hermes valun ergo` with this profile's
+  Hermes commands, up to 600 characters (300 before); a profile of the retired pilot network (`network_retired`) is told to join in a new Hermes profile
+  set up as this README says, with this plugin's own `hermes -p NAME valun join --sandbox ...`; and the plain ending
+  the core writes for an issued IOU when the server sends none no longer names `valun audit --mine` (the valun package's
+  check of its own profile's records, not this plugin's), only the public check (the pair's row in `GET /ledger`), as
+  the server's own summary does.
+
+### Tests
+
+- The tests that fake the server (`tests/test_reads_roles_040.py`) answer in place of `Client._open`, at an `https://`
+  address: the core no longer calls `urllib.request.urlopen` for the server, and sends no token to an `http://` server
+  on another machine. Their guard against any request (`PluginStorage`) patches both. With the 0.7.2 core and the old
+  tests, 183 tests gave 11 failures and 12 errors, 14 of them from the fake server alone.
+- The tests follow the core's argument check (a `deal_id` of 16 hex; a misspelt action or decision refused with its own
+  code) and its new state key (`sandbox_tour_done`); four new tests check the Hermes words above (three of
+  them fail without the change they check; the fourth checks that the `wrong_server` words cannot reach a plugin
+  answer, as HermesStore names no profile file).
+
+### Core
+
+- `valun_core/` copied again from valun-open: the `valun` package 0.7.2 (`agent.py`, `client.py`, `novation.py`,
+  `records.py`, `sandbox.py`, `schemas.py`; the other four unchanged). The core is ten files. Its `client.py` makes a
+  file private with the package's `home.py` where that module is there (an access list on Windows); the plugin's core
+  has no `home.py`, so `valun-records.json` is written as before (created 0600).
+
+### Checked locally (2026-11-19)
+
+- Unit tests (`python -B -m unittest discover -s tests`): 187 tests, OK with 2 skipped on Python 3.14.7 and 3.10.22,
+  and OK with none skipped in the Hermes venv (Python 3.14.9).
+- `spec/vectors/check_python.py --client plugin --require circulation/1` (valun-open release/0.7.2): 1461 checks, 1260
+  agree, 0 disagreements in failing tiers, 17 informative differences, 184 not applicable.
+- `scripts/check_plugin_core.py`: the plugin's core is valun 0.7.2, unchanged (10 files).
+- `hermes plugins validate` (no `--install-deps`, no network) on a fresh Hermes home: validation passed (15 checks),
+  security scan safe.
+
 ## 0.7.1 (2026-11-15)
 
 ### Added
