@@ -114,11 +114,16 @@ def server_url(ctx):
 
 
 def network(ctx):
-    """This profile's Valun network (0.5): the one its join or enrollment named (the `network` setting), valun-pilot-1
-    for a profile without one. For the plugin's own texts; the core reads the setting itself (HermesStore) and refuses
-    a network it does not know."""
+    """This profile's Valun network (0.5): the one its join or enrollment named (the `network` setting); for a profile
+    without one, as the core shows it (client.profile_network, 0.7.2): valun-pilot-1 when it has joined (a participant
+    id: enrolled before 0.5), else the one network it would join, the testnet, so that the plugin's words before a join
+    are the testnet's, not the retired pilot's. A network the plugin does not know is read as valun-pilot-1, as
+    before. For the plugin's own texts; the core reads the setting itself (HermesStore) and refuses a network it does
+    not know."""
     n = ctx.get_config('network', default='') or ''
-    return n if n in vc.NETWORKS else vc.NETWORK
+    if n:
+        return n if n in vc.NETWORKS else vc.NETWORK
+    return vc.profile_network({'participant_id': ctx.get_config('participant_id', default='') or ''})
 
 
 def unit(ctx):
@@ -552,24 +557,25 @@ def call_arguments(args):
     return {} if args is None else dict(args) if isinstance(args, dict) else args
 
 
-def bad_arguments(name, args):
+def bad_arguments(name, args, in_unit=vc.UNIT):
     """The core's refusal of a call's arguments before anything is read or signed: its own check, va.tool_arguments (fix
     inbox #58: arguments that are not a JSON object, or without one the tool's schema requires; null counts as
-    missing), as the core's call() runs it where every call comes in. bad_arguments naming each one missing and what it
-    is; None when the core takes them."""
+    missing; 0.7.2: an argument of the wrong type or value), as the core's call() runs it where every call comes in.
+    bad_arguments naming each one missing and what it is (or the tool's own code for a misspelt value); None when the
+    core takes them. in_unit: the profile's unit (unit(ctx)), which the refusal of an amount names."""
     try:
-        va.tool_arguments(name, args)
+        va.tool_arguments(name, args, in_unit)
     except vc.ValunError as e:
         return va.error_payload(e, SETUP_HINT)
     return None
 
 
-def argument_refusal(name, args):
+def argument_refusal(name, args, in_unit=vc.UNIT):
     """The core's own refusal of these arguments, where it refuses them before it needs its key: its argument check
-    (bad_arguments), then the tool's own (a misspelt review decision: bad_decision), from an agent over a store that
-    holds no key, token or server, so it can sign and send nothing. None when the core would need its key to go
-    further."""
-    refused = bad_arguments(name, args)
+    (bad_arguments, with the profile's unit in_unit), then the tool's own (a misspelt review decision: bad_decision),
+    from an agent over a store that holds no key, token or server, so it can sign and send nothing. None when the core
+    would need its key to go further."""
+    refused = bad_arguments(name, args, in_unit)
     if refused is not None:
         return refused
     try:
@@ -640,8 +646,9 @@ def take_binding(name, args):
 
 def _run(ctx, name, args):
     """One tool call (see make_handlers). Its arguments are checked first, by the core's own check (bad_arguments):
-    a call the core refuses reads, signs and sends nothing, whatever the state of this profile."""
-    refused = bad_arguments(name, args)
+    a call the core refuses reads, signs and sends nothing, whatever the state of this profile. An amount's refusal names
+    the profile's unit (0.7.2)."""
+    refused = bad_arguments(name, args, unit(ctx))
     if refused is not None:
         return hermes_result(ctx, refused)
     bound = take_binding(name, args)
@@ -652,7 +659,7 @@ def _run(ctx, name, args):
     if bound is not None:                      # prepared by the hook, and Hermes's approval passed: sign exactly that
         out = agent.call_safe(name, bound)
     elif confirm_commitments(ctx) and agent.is_commitment(name, args):
-        out = argument_refusal(name, args) or dict(APPROVAL_MISSING)   # never signed without the owner's approval
+        out = argument_refusal(name, args, unit(ctx)) or dict(APPROVAL_MISSING)   # never signed without the owner's approval
     else:
         out = agent.call_safe(name, args)
     return hermes_result(ctx, out)

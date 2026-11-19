@@ -67,11 +67,16 @@ class TestnetJoin(t.Base):
 
 
 class Settings(unittest.TestCase):
-    def test_the_store_reads_the_network_and_none_means_the_pilot(self):
+    def test_the_store_reads_the_network_and_none_means_the_pilot_once_joined(self):
         with mock.patch.object(tools, 'data_dir', lambda: None):
             self.assertEqual(tools.HermesStore(t.Ctx(network=TESTNET)).state['network'], TESTNET)
             self.assertNotIn('network', tools.HermesStore(t.Ctx()).state, 'a profile from before 0.5: the pilot')
-        self.assertEqual((tools.network(t.Ctx()), tools.unit(t.Ctx()), tools.scale(t.Ctx())), ('valun-pilot-1', 'PC', 1))
+        joined = t.Ctx(participant_id=t.PID)                # enrolled before 0.5, which names no network: the pilot
+        self.assertEqual((tools.network(joined), tools.unit(joined), tools.scale(joined)), ('valun-pilot-1', 'PC', 1))
+        # 0.7.2: a profile that has not joined yet speaks the words of the one network it would join, as the core shows
+        # it (client.profile_network), not the retired pilot's
+        self.assertEqual((tools.network(t.Ctx()), tools.unit(t.Ctx()), tools.scale(t.Ctx())), (TESTNET, 'nanoERG', SCALE))
+        self.assertEqual(tools.network(t.Ctx()), vc.profile_network({}))
         self.assertEqual(tools.network(t.Ctx(network='valun-future-9')), 'valun-pilot-1', 'texts only: the core refuses it')
 
     def test_the_consent_cap_is_pc_sized_in_the_networks_unit(self):
@@ -81,7 +86,7 @@ class Settings(unittest.TestCase):
         cap, problem = tools.consent_cap(tn(100_000 * SCALE + 1))
         self.assertEqual(cap, 0)
         self.assertIn('not a whole number of nanoERG from 0 to 100000000000 or none', problem)
-        pilot = lambda v: t.Ctx(**{'consents.max_PC': v})
+        pilot = lambda v: t.Ctx(participant_id=t.PID, **{'consents.max_PC': v})     # joined before 0.5: the pilot
         self.assertEqual(tools.consent_cap(pilot(100000)), (100000, None))
         cap, problem = tools.consent_cap(pilot(100001))
         self.assertEqual(cap, 0)
@@ -89,7 +94,21 @@ class Settings(unittest.TestCase):
 
     def test_how_to_change_names_the_unit_and_its_limit(self):
         self.assertIn('(N: whole nanoERG up to 100000000000, or none for no cap)', tools.how_to_change(t.Ctx(network=TESTNET)))
-        self.assertIn('(N: whole PC up to 100000, or none for no cap)', tools.how_to_change(t.Ctx()))
+        self.assertIn('(N: whole PC up to 100000, or none for no cap)', tools.how_to_change(t.Ctx(participant_id=t.PID)))
+        self.assertIn('(N: whole nanoERG up to 100000000000, or none for no cap)', tools.how_to_change(t.Ctx()))
+
+    def test_an_amounts_refusal_names_the_profiles_unit(self):
+        """0.7.2 (fix inbox #58): the core refuses an amount of the wrong type before anything is read or signed, naming
+        the unit it must be in; the plugin's handlers and its approval hook pass the profile's unit (nanoERG on the
+        testnet), where the core's default is the pilot's PC."""
+        args = {'counterparty': 'sandbox-exact', 'role': 'payer', 'title': 'A summary', 'deliverable': 'text',
+                'description': 'one paragraph', 'price': '7'}
+        for ctx, words in ((t.Ctx(network=TESTNET, participant_id=t.PID), 'price must be a whole number of nanoERG'),
+                           (t.Ctx(participant_id=t.PID), 'price must be a whole number of PC')):
+            out = json.loads(tools.make_handlers(ctx)['valun_propose'](dict(args)))
+            self.assertEqual(out['error'], 'bad_arguments', out)
+            self.assertIn(words, out['message'])
+            self.assertIn(words, tools.argument_refusal('valun_propose', args, tools.unit(ctx))['message'])
 
     def test_consent_and_decision_lines_name_the_unit(self):
         item = {'kind': 'setoff', 'id': 'vs_0000000000000001', 'your_roles': ['member'], 'context': {'amount': 1_000_000},
@@ -207,7 +226,7 @@ if __name__ == '__main__':
 class ToolWords052(unittest.TestCase):
     """0.5.2 (fix inbox #15): the tools are registered in the words of the profile's network."""
 
-    def registered(self, network):
+    def registered(self, network, participant_id=None):
         import importlib.util
         import sys
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -223,7 +242,7 @@ class ToolWords052(unittest.TestCase):
                 self.schemas = {}
 
             def get_config(self, key, default=None):
-                return network if key == 'network' else default
+                return {'network': network, 'participant_id': participant_id}.get(key) or default
 
             def register_tool(self, name, schema=None, **kw):
                 self.schemas[name] = schema
@@ -245,4 +264,8 @@ class ToolWords052(unittest.TestCase):
         self.assertIn('nanoERG of Ergo testnet', tn)
         pilot = self.registered('valun-pilot-1')
         self.assertIn('PC are pilot credits', pilot['valun_propose']['description'])
-        self.assertEqual(self.registered('')['valun_propose']['description'], pilot['valun_propose']['description'])
+        # a profile that names no network: the pilot's words once it has joined (before 0.5), the testnet's before a join
+        # (0.7.2, client.profile_network)
+        self.assertEqual(self.registered('', t.PID)['valun_propose']['description'], pilot['valun_propose']['description'])
+        self.assertEqual(self.registered('')['valun_propose']['description'],
+                         self.registered('valun-testnet-1')['valun_propose']['description'])

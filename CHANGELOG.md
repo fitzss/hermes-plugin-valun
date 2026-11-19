@@ -18,7 +18,12 @@
   a request that timed out; a cut connection and a timeout are named for what they are.
 - **Arguments of the wrong type or value are refused by name** (fix inbox #58), before anything is read, signed or
   asked: a `deal_id` that is not `vd_` + 16 hex, a string given a number, a misspelt `action` (`bad_action`) or review
-  `decision` (`bad_decision`). The approval hook blocks such a commitment with that refusal instead of asking you.
+  `decision` (`bad_decision`). The approval hook blocks such a commitment with that refusal instead of asking you. An
+  amount's refusal names your profile's unit (nanoERG on the testnet): the handlers and the hook pass it to the core's
+  check, whose default is the pilot's PC.
+- **A profile that names no network speaks the testnet's words until it joins** (`client.profile_network`, fix inbox
+  #15): the tool descriptions, `how_to_change`, and the consent cap's unit and limit. A profile that joined before 0.5
+  (a participant id, and no network) is still read as the pilot's.
 - **Answers that wait for your owner name the owner console** (`owner_console`) and the approval (`approval_id`); an
   issued IOU's deal opens with a plain `summary` for both sides; `credit_note.confirmation_means` gives the server's
   time to commit it; the exact check, and its advice to dispute, apply only to the built-in jobs; `valun_directory` lists the
@@ -34,6 +39,12 @@
   check of its own profile's records, not this plugin's), only the public check (the pair's row in `GET /ledger`), as
   the server's own summary does.
 
+### Docs
+
+- README: a set-off's netting is committed, not final, in the Trust model's words (https://valun.tech/trust); the
+  `valun_check_payer` row says the verdict is the step's, from both sides, from a server that checks both; the
+  Disclosure names the plain http rule and the new record (`sandbox_tour_done`).
+
 ### Tests
 
 - The tests that fake the server (`tests/test_reads_roles_040.py`) answer in place of `Client._open`, at an `https://`
@@ -41,9 +52,10 @@
   on another machine. Their guard against any request (`PluginStorage`) patches both. With the 0.7.2 core and the old
   tests, 183 tests gave 11 failures and 12 errors, 14 of them from the fake server alone.
 - The tests follow the core's argument check (a `deal_id` of 16 hex; a misspelt action or decision refused with its own
-  code) and its new state key (`sandbox_tour_done`); four new tests check the Hermes words above (three of
-  them fail without the change they check; the fourth checks that the `wrong_server` words cannot reach a plugin
-  answer, as HermesStore names no profile file).
+  code), its new state key (`sandbox_tour_done`), and the network of a profile that names none (the pilot only once
+  joined). Five new tests: four for the Hermes words above (three of them fail without the change they check; the
+  fourth checks that the `wrong_server` words cannot reach a plugin answer, as HermesStore names no profile file), and
+  one for an amount's refusal in the profile's unit (it fails without that change).
 
 ### Core
 
@@ -54,7 +66,7 @@
 
 ### Checked locally (2026-11-19)
 
-- Unit tests (`python -B -m unittest discover -s tests`): 187 tests, OK with 2 skipped on Python 3.14.7 and 3.10.22,
+- Unit tests (`python -B -m unittest discover -s tests`): 188 tests, OK with 2 skipped on Python 3.14.7 and 3.10.22,
   and OK with none skipped in the Hermes venv (Python 3.14.9).
 - `spec/vectors/check_python.py --client plugin --require circulation/1` (valun-open release/0.7.2): 1461 checks, 1260
   agree, 0 disagreements in failing tiers, 17 informative differences, 184 not applicable.

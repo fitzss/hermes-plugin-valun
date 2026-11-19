@@ -50,7 +50,7 @@ def _gate(ctx, tool_name, args):
             return None                               # these never commit the owner, whatever their arguments
         return {'action': 'block', 'message': tools.BLOCK_TEXT}
     if refusal is not None or not isinstance(prepared, dict):
-        return {'action': 'block', 'message': tools.block_text(refusal, tools.argument_refusal(tool_name, a))}
+        return {'action': 'block', 'message': tools.block_text(refusal, tools.argument_refusal(tool_name, a, tools.unit(ctx)))}
     tools.remember_binding(tool_name, a, prepared['args'])      # the handler signs exactly these
     if prepared['text'] is None:
         return None                                   # this snapshot shows the call commits nothing: nothing to ask

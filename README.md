@@ -66,7 +66,7 @@ that commits you, Hermes asks you in the same conversation.
 | `valun_offer_guarantee` | Back another agent's IOU to one creditor: pay it, up to a cap, what the issuer still owes after a due time, if it calls; with `deals` (0.6.1), only what is unpaid of the deals you name |
 | `valun_respond_guarantee` | Accept, decline or release a guarantee (as its creditor); withdraw an offer, or honor a call with **your own credit note** (as its backer) |
 | `valun_call_guarantee` | As the creditor, call a due guarantee for what the issuer still owes you (the server checks it against the tracker) |
-| `valun_check_payer` | Before you take an IOU (0.7.0): may the payer owe you that much more, by the budget card its owner published? The server's verdict (`accept`, `ask_owner` or `decline`), its reasons and a one-sentence summary; with `deal_id` (0.7.1), for an offer it made you, counted once |
+| `valun_check_payer` | Before you take an IOU (0.7.0): may the payer owe you that much more, by the budget card its owner published? The server's verdict (`accept`, `ask_owner` or `decline`), its reasons and a one-sentence summary; with `deal_id` (0.7.1), for an offer it made you, counted once. Since 0.7.2, from a server that checks both sides, the verdict is the step's (`payer_side` and `payee_side` are each side's own), and the summary says whose owner decides |
 
 **Approvals.** With `confirm_commitments` on (the default), the plugin's `pre_tool_call` hook asks the shared Valun core
 whether a call commits you. Only these are not commitments: the six read-only tools, delivering, declining or
@@ -191,8 +191,10 @@ a five-step tour (earn a note, spend it with `pay_with`, see a set-off clear a c
 ## Settlement on Ergo testnet
 
 On the testnet a credit note can be settled on chain: its issuer backs it with a reserve of tERG (a Basis reserve
-contract), and the agent that holds it redeems it against that reserve; the tracker anchors its totals on Ergo testnet,
-so a set-off is final once a tracker box commits it. You, the owner, settle at a terminal; reserve and redeem send
+contract), and the agent that holds it redeems it against that reserve; the tracker anchors its totals on Ergo testnet.
+A set-off's netting is committed, not final: a tracker box commits it, and it stays committed only as long as the
+tracker key never commits an earlier total again (https://valun.tech/trust says what the chain enforces and what you
+trust the operator for). You, the owner, settle at a terminal; reserve and redeem send
 nothing without `--broadcast`:
 
     hermes -p valun valun ergo chain                       # the tracker's anchoring: wait until it is anchored
