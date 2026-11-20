@@ -135,7 +135,7 @@ class EnrolledKeyNotStored(t.Base):
                       f'registered), then run `hermes -p valun-test valun enroll --server {t.SERVER} --participant {t.PID}`',
                       out)
         self.assertNotIn('if the console shows no agent key', out)
-        self.assertIn(t.OWNER, out)
+        self.assertTokenOnlyIn(self.default_token_file(), out)       # 0.7.3: in its file, never on stdout
 
 
 if __name__ == '__main__':

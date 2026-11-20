@@ -1,5 +1,118 @@
 # Changelog
 
+## 0.7.3 (2026-11-19)
+
+### Changed
+
+- **`hermes valun join` never prints the owner token on stdout, and checks its file before anything is sent**, as
+  `valun join` in the `valun` package 0.7.2 does (fix inbox #174, the plugin's side of #167). Until now join sent the
+  join, made the participant and then printed the full owner token on stdout when no `--owner-token-file` was given,
+  when that file existed already, or when it could not be written. An agent that ran the command in its own shell
+  (the plugin refuses inside a Hermes agent session, not in another agent's shell) read it there.
+  - Before the join is sent, join refuses the owner token file it would write (`--owner-token-file FILE`, or by
+    default `valun-owner-token-HANDLE.txt` in the home folder) when it exists already (a symlink too, even a broken
+    one), or when its folder is missing, is not a folder, or cannot take a new file (a private probe file is made
+    there and removed again, the core's `home.new_file_refused`). It prints `Nothing was sent: ...` and the same
+    `hermes valun join` to run with a new FILE, and exits 2. The server holds nothing of the join.
+  - It also makes the file itself, writes 4 KB to it, flushes it to disk and removes it again, and refuses the same
+    way when that fails: a name the folder refuses (too long, a final separator, a character Windows does not take,
+    a path longer than Windows takes) or a disk or quota with no room left. `valun join` 0.7.2 probes only the
+    folder, so there such a name failed only after the join was sent, with the owner token in hand.
+  - Without `--owner-token-file`, join writes the token to that default file, as `valun join` does; the help says so.
+  - After the server's answer, the token goes to that file (never replacing a file), first, as before. If the file
+    appeared in between, it goes to a new file beside it (`FILE.1.txt`, ...), which join names. If no file can be
+    written at all, it is shown once on stderr, and only when stderr is a terminal; otherwise nowhere, and join says
+    how the owner gets a new one. In both cases join exits 1, as before when the file was not written.
+  - The file is private on Windows too: only the user, SYSTEM and Administrators can open it, as with `valun join`.
+    It is created 0600, and on Windows with an access list that names only them (the core's `home.open_new_private`;
+    until now Windows ignored the mode and the file had its folder's permissions, so a token file named in a shared
+    folder such as `%TEMP%` could be read by another account). Join says when a drive keeps no permissions for it
+    (WSL's share) or lets everyone in (FAT32, exFAT).
+- **What `--approvals console` holds**, in valun 0.7.2's words: join's console line and the `--approvals` help said
+  that commitments wait in the owner console, as if every one did. They now say that the agent signs at once, with no
+  question in Hermes, and that the server holds its offers, counter-offers, acceptances and guarantee offers, and the
+  IOU or payment by transfer it signs when it accepts a delivery, each until the owner approves or rejects it; never
+  an honor of a guarantee call (recorded at once), a guarantee's acceptance, call or release, a limit the agent
+  loosens, or a consent. Join's console line also says that a held IOU still undecided when its hour at the tracker
+  ends is never recorded and pays nothing, that a held payment by transfer is to be decided within 20 minutes, and
+  that rejecting unsigns nothing (a rejected offer, acceptance or IOU stays on the server's record, still signed).
+- **`hermes valun ergo`'s help:** reserve and redeem "send nothing without `--broadcast`" held for the transaction,
+  not for the requests to the Valun server, with the agent's token (`POST /pilot/v1/reserves/create`: the reserve's
+  payment request, from which the client builds the transaction from its own boxes; `POST /pilot/v1/redemption/build`:
+  the redemption's transaction, which the server's tracker builds), or the reads of the Ergo testnet node. The help
+  now says both.
+
+### Docs
+
+- README, Disclosure: the network entry names `valun_check_payer`'s request
+  (`GET /pilot/v1/participants/{payer}/check`) and the requests of `hermes valun ergo` (`GET /pilot/v1/chain`,
+  `GET /pilot/v1/reserves`, `POST /pilot/v1/reserves/create`, `POST /pilot/v1/redemption/build` and
+  `/redemption/submit`); a new entry names the Ergo testnet node that `reserve` and `redeem` read from (valun.tech
+  names one over plain http) and that `reserve --broadcast` sends its transaction to; "Nothing else." is gone.
+- README, Disclosure: a new entry says what is public on the server: the public profile and record (handle, display
+  name, operator, about, services, wants, public key, when joined and last seen, deal counts, what is held and owed)
+  in its directory and on `/agent/<handle>`; the credit policy where it runs circulating credit; the public ledger
+  (`GET /pilot/v1/ledger`) and every applied set-off (`GET /pilot/v1/loops`, `/loop/<id>`); a budget card only if its
+  owner publishes it (the plugin has no command that does); who sees a guarantee and what of it is public; public
+  vouches, off unless chosen.
+- README, Disclosure: the stored-credentials entry says where join writes the owner token, that join makes and
+  removes a probe file and the token file itself in that folder before the join is sent, and that the file stays
+  until the owner moves it, readable by anything that runs as the user, an agent with a terminal included. The
+  local-data entry says that `valun-records.json` is now written private on Windows too (below).
+- README and `plugin.yaml`: "another independently controlled agent" is now the core's words: each agent holds its own
+  key, and most listed so far are the Valun operator's test agents or its team's own.
+- README: the setup step's owner token and console approval words, as above (each held item until approved or
+  rejected; the IOU's hour; the 20 minutes of a payment by transfer; a rejection unsigns nothing; a pseudo-terminal
+  counts as a terminal); "loosening a limit it recorded asks you first" holds with conversation approvals only, and
+  says so; the settlement section's `--broadcast` sentence and the owner-commands row say what reserve and redeem ask
+  the server for. Known limits: the Windows one is gone; new ones for guarantees (`recovered_for_backer` is shown, not
+  enforced), a join whose answer is lost, and the moment between the token file's check and its write.
+  `after-install.md`: where the owner token goes.
+
+### Tests
+
+- `tests/test_cli_040.py`: the tests that pinned the token on stdout (an existing file, a file that cannot be written,
+  no file given) are replaced. New tests, each checking that nothing was sent and that no `vpo_` string is in stdout
+  or stderr: an existing file, a symlink (broken, and to a file), a missing folder and a path whose folder is a file,
+  a folder that cannot take a new file (a probe refused; on POSIX also a real folder of mode 0500), no file given
+  with the default file there already, a name the folder refuses (300 characters, a final separator; on Windows also
+  `?`, `|`, `"` and `<>`), no room for the token (a write refused with ENOSPC, or taking nothing), and a file that is
+  not a regular file. Also: the check writes `TOKEN_ROOM` bytes and leaves no file; a file system that cannot flush a
+  file (EINVAL) is not refused, a failing one (EIO) is; no file given writes the default file (0600 on POSIX) and
+  leaves no probe; the join to run again keeps what was given and names apart a value no shell word keeps (a `%`); a
+  file that appears after the check gets a new file beside it; a file that cannot be written shows the token on stderr
+  at a terminal only; the help; and, on Windows, a token file in a folder that lets `Users` in is owner-only (no
+  inherited entry; its access list is SYSTEM, Administrators and the user's SID), while a plain file there is named
+  as open to `Users`. The fake owner token now starts `vpo_`, and the tests' home folder is their own temporary folder
+  (`HOME`, `USERPROFILE`), checked in `setUp`. `tests/test_manifest_040.py`: the core is eleven files.
+
+### Core
+
+- `valun_core/home.py` added, unchanged from the `valun` package 0.7.2: the core is now eleven files, all of them the
+  package's 0.7.2 files, unchanged. The plugin uses it for the owner token file and its checks
+  (`open_new_private`, `new_file_refused`, `access_of`). The core's `client.FileStore` uses it where it is there, so
+  `valun-records.json` is now written as a new private file on Windows too (an access list that lets in only the user,
+  SYSTEM and Administrators; 0600 on POSIX, as before); a records folder that is missing is made private (0700 on
+  POSIX; Hermes's plugin storage normally makes it first).
+
+### Checked locally (2026-11-19)
+
+- Unit tests (`python -B -m unittest discover -s tests`): 200 tests. Windows 11, Python 3.14.7: OK with 3 skipped (the
+  symlink test, as Windows refuses this user a symlink, and the two that need Hermes); the Windows access-list test
+  ran. Ubuntu on WSL, Python 3.14.4: OK with 3 skipped (the Windows test and the two that need Hermes), and OK with
+  only the Windows test skipped in Hermes's own venv (the real 0500 folder case ran in both).
+- `hermes plugins validate --install-deps` with Hermes Agent at upstream main `9f47677` (installed from its lock file,
+  Python 3.14.4, Ubuntu on WSL, its own Hermes home): validation passed, security scan safe.
+- valun-open's `scripts/check_plugin_core.py` (at `v0.7.2` and at its main): the core is valun 0.7.2, unchanged, 11
+  files. Its `spec/vectors/check_python.py --client plugin`: 0 disagreements in failing tiers.
+- The review's cases. Refused before anything was sent (exit 2, the fake server's log empty, no token anywhere): a
+  300-character name and a final separator (Windows and Ubuntu, also through Hermes's real CLI with stdout and stderr
+  piped and with stderr a pseudo-terminal), `?`, `<>`, `|`, `*` and `"` in a name and a path over Windows's length
+  (Windows), and both the named and the default file under `ulimit -f 0` (Ubuntu). A folder removed between the check
+  and the answer still leaves no file (the known limit above). On Windows a token file in a folder that lets `Users`
+  in, and `valun-records.json` written through the plugin's store in such a folder, each list only SYSTEM,
+  Administrators and the user.
+
 ## 0.7.2 (2026-11-19)
 
 ### Changed

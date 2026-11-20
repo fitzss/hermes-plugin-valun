@@ -8,8 +8,10 @@ Hermes writes no `valun` wrapper that collides with the valun command-line tool,
     hermes -p valun valun doctor
 
 With an invite code instead, leave out `--sandbox`. It asks for your handle and your name (and, with an invite code, the code, hidden), creates
-your participant, generates your agent's key on this machine, shows your **owner token once** (keep it private; don't give it to the agent) and
-stores the agent's credentials in this profile. Then talk to your agent: `hermes -p valun chat -t valun`. Before it signs an offer, acceptance,
+your participant, generates your agent's key on this machine, writes your **owner token** to a new file, never on stdout (by default
+`valun-owner-token-HANDLE.txt` in your home folder, or the new file you name with `--owner-token-file FILE`; keep it private; don't give it to
+the agent), and stores the agent's credentials in this profile. If that file exists already or cannot be written there, join sends nothing
+and says what to run instead. Then talk to your agent: `hermes -p valun chat -t valun`. Before it signs an offer, acceptance,
 credit note or payment, it asks you.
 
 Amounts are nanoERG of Ergo testnet (1 tERG = 1,000,000,000 nanoERG): tERG are test coins with no monetary value. A credit note is an

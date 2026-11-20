@@ -5,18 +5,20 @@ the shared core classifies it, failing closed) through Hermes's own approval gat
 one snapshot of what would be signed, and blocks the call when that snapshot cannot be read; and the operator command
 `hermes valun join|enroll|status|doctor|consents|attempts`, run by a person in a terminal.
 """
+import errno
 import getpass
 import json
 import logging
 import os
 import re
 import secrets
+import stat
 import subprocess
 import sys
 from datetime import datetime, timezone
 
 from . import tools
-from .valun_core import agent as va, client as vc, novation as nv, schemas
+from .valun_core import agent as va, client as vc, home as vh, novation as nv, schemas
 
 logger = logging.getLogger(__name__)
 
@@ -115,12 +117,19 @@ def _setup_cli(subparser, ctx):
     j.add_argument('--wants', default='', help='optional public list of the work your agent pays others for')
     j.add_argument('--server', help='Valun server URL (default: configured server_url)')
     j.add_argument('--invite-from-stdin', action='store_true', help='read the invite code from stdin instead of a hidden prompt')
-    j.add_argument('--owner-token-file',
-                   help='write your owner token to this NEW file (created private; an existing file is never overwritten) '
-                        'instead of showing it once; when it cannot be written the token is shown and join exits 1')
+    j.add_argument('--owner-token-file', metavar='FILE',
+                   help='the NEW file join writes your owner token to (only you, SYSTEM and Administrators can open it: '
+                        'created 0600, and on Windows with an access list); without it, valun-owner-token-HANDLE.txt in '
+                        'your home folder. Join refuses before anything is sent (exit 2) when that file exists already, '
+                        'its folder is missing or cannot take a new file, or the file cannot be written there (join makes '
+                        'it, writes it and removes it again to check). The token is never printed on stdout')
     j.add_argument('--approvals', choices=['conversation', 'console', 'none'], default='conversation',
                    help="where commitments are approved: 'conversation' (Hermes asks you before each one; default), "
-                        "'console' (they wait in the web owner console), or 'none' (autonomous within your limits)")
+                        "'console' (your agent signs at once and Hermes asks nobody; the Valun server holds its offers, "
+                        'counter-offers, acceptances and guarantee offers, and the IOU or payment by transfer it signs when '
+                        'it accepts a delivery, for you in the web owner console; never an honor of a guarantee call, a '
+                        "guarantee's acceptance, call or release, a limit your agent loosens, or a consent), or 'none' "
+                        '(autonomous within your limits)')
     j.add_argument('--direct-tools', action='store_true',
                    help='expose the Valun tools to the model directly (sets tools.tool_search.enabled=off in THIS profile); '
                         'recommended for a dedicated Valun profile and for small models')
@@ -146,17 +155,25 @@ def _setup_cli(subparser, ctx):
 
     eg = subs.add_parser('ergo', help="the testnet network: settlement on Ergo testnet (OWNER, at a terminal): this agent's "
                                       'Ergo address, the chain, the reserves, a reserve of your own tERG and the redemption of '
-                                      'a note you hold (reserve and redeem send nothing without --broadcast)')
+                                      "a note you hold (reserve and redeem ask the Valun server, with your agent's token, for "
+                                      "what they sign: a reserve's payment request, a redemption's transaction; and they "
+                                      'read the Ergo testnet node that GET /chain names, also without --broadcast; only with '
+                                      '--broadcast is the transaction sent)')
     egs = eg.add_subparsers(dest='valun_ergo')
     egs.add_parser('address', help="this agent's Ergo testnet address (the P2PK address of its Valun key)")
     egs.add_parser('chain', help="the tracker's anchoring on Ergo testnet")
     egs.add_parser('reserves', help='the Basis reserves the network sees')
     er = egs.add_parser('reserve', help='lock NANO nanoERG of your own tERG in a Basis reserve (needs ergo-lib-python '
-                                        '0.28.0 in Hermes\'s Python; sent only with --broadcast)')
+                                        "0.28.0 in Hermes's Python; the Valun server answers the reserve's payment request "
+                                        "either way, POST /reserves/create with your agent's token, and the transaction is "
+                                        'built and signed here from your own boxes; it goes to the Ergo testnet node only '
+                                        'with --broadcast)')
     er.add_argument('valun_nano', metavar='NANO', type=int)
     er.add_argument('--broadcast', dest='valun_broadcast', action='store_true')
-    ed = egs.add_parser('redeem', help='redeem AMOUNT nanoERG of the note ISSUER issued to you, against its reserve (signed '
-                                       'here with your own key; submitted only with --broadcast)')
+    ed = egs.add_parser('redeem', help='redeem AMOUNT nanoERG of the note ISSUER issued to you, against its reserve (the '
+                                       'Valun server builds the transaction either way, with its tracker: POST '
+                                       "/redemption/build, with your agent's token; checked and signed here with your own "
+                                       'key; submitted only with --broadcast)')
     ed.add_argument('valun_issuer', metavar='ISSUER', help="the issuer's handle or participant id")
     ed.add_argument('valun_amount', metavar='AMOUNT', type=int)
     ed.add_argument('--broadcast', dest='valun_broadcast', action='store_true')
@@ -367,11 +384,20 @@ def _doctor(ctx):
     return 0 if not problems else 1
 
 
+def _open_new_private(path):
+    """A NEW file at `path`, open for writing, that only this user (SYSTEM and Administrators aside) can open, made as
+    valun 0.7.2's join makes the owner token file (the core's home.open_new_private): never an existing file, maybe
+    another participant's owner token, which is not overwritten or truncated, nor a symlink followed (FileExistsError);
+    mode 0600 on POSIX; on Windows, which ignores a file mode, an access list that lets in only this user (named by its
+    SID), SYSTEM and Administrators, set as the file is created (until 0.7.3 the plugin's core had no home.py, and the
+    file had its folder's permissions there). _not_private_note names a drive where that does not hold."""
+    return vh.open_new_private(path)
+
+
 def _write_new_private(path, text):
-    """Write `text` into a NEW private file (O_EXCL: an existing file, maybe another participant's owner token, is never
-    overwritten or truncated, and a file that exists with wider permissions never receives it; FileExistsError). If
-    writing fails, the file this call created is removed (as the core CLI's _write_private does)."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    """Write `text` into a NEW private file (_open_new_private). If writing fails, the file this call created is removed
+    (as the core CLI's _write_private does)."""
+    fd = _open_new_private(path)
     try:
         try:
             f = os.fdopen(fd, 'w', encoding='utf-8')
@@ -388,27 +414,253 @@ def _write_new_private(path, text):
         raise
 
 
-def _hand_over(args, owner, server):
-    """The owner token, to the owner, once (decision D-3 c: right after the join answer, before anything else can fail):
-    written to --owner-token-file (a new private file), or shown. A file that cannot be written, or that exists already
-    (never replaced: it may hold another identity's owner token), does not lose it: it is shown instead, and False is
-    returned (join exits 1 once its other steps are done, so that a script relying on the file notices). True
-    otherwise."""
-    path = getattr(args, 'owner_token_file', None)
-    if path:
+def default_owner_token_file(handle):
+    """Where join writes the owner token when no --owner-token-file is given, as valun 0.7.2's `valun join` does:
+    valun-owner-token-HANDLE.txt in the home folder Python finds ($HOME; USERPROFILE on Windows), one file per handle.
+    Never an existing file: join refuses one before anything is sent (_token_file_refusal)."""
+    h = str(handle or '').strip().lower()
+    name = f'valun-owner-token-{h}.txt' if re.fullmatch(r'[a-z0-9_-]{1,40}', h) else 'valun-owner-token.txt'
+    return os.path.join(os.path.expanduser('~'), name)
+
+
+TOKEN_ROOM = 4096           # bytes the check of the token file writes: far more than an owner token (vpo_ and 43 more)
+
+
+def _token_path_refused(path):
+    """Why the owner token file `path` itself cannot be written, or None when it can: `path` is made as a new private
+    file (_open_new_private), checked to be a regular file, TOKEN_ROOM bytes are written to it and flushed to disk, and
+    it is removed again. The probe of its folder (home.new_file_refused) misses a name the folder refuses (too long, a
+    character Windows does not take, a final separator, a path longer than Windows takes) and a disk or quota with no
+    room left, each of which would otherwise fail only after the join was sent, the participant made and its owner token
+    in hand (the review of 0.7.3; valun 0.7.2's join probes only the folder). A file that appeared since the first check
+    is left to _hand_over (None), which writes the token beside it. A file system that cannot flush a file to disk
+    (fsync: EINVAL, ENOSYS, ENOTSUP) is not refused for that: what was written is enough."""
+    try:
+        fd = _open_new_private(path)
+    except FileExistsError:
+        return None
+    except (OSError, ValueError) as e:              # ValueError: a name with a NUL character
+        return getattr(e, 'strerror', None) or str(e) or type(e).__name__
+    regular, why = True, None                       # made just now, never an existing file: removed below
+    try:
+        regular = stat.S_ISREG(os.fstat(fd).st_mode)
+        if not regular:
+            why = 'it is not a regular file'
+        room = b'\n' * TOKEN_ROOM if regular else b''
+        while room:
+            n = os.write(fd, room)
+            if n <= 0:
+                raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+            room = room[n:]
+        if regular:
+            try:
+                os.fsync(fd)
+            except OSError as e:
+                if e.errno not in (errno.EINVAL, errno.ENOSYS, errno.ENOTSUP, errno.EOPNOTSUPP):
+                    raise
+    except OSError as e:
+        why = e.strerror or type(e).__name__
+    finally:
         try:
-            _write_new_private(path, owner + '\n')
-            print(f'Your OWNER token is in {path}. Keep it private; do not give it to your agent.')
-            return True
-        except FileExistsError:
-            print(f'{path} exists already, so it was not replaced (it may hold another owner token); your owner token is '
-                  'shown here instead.')
-        except OSError as e:
-            print(f'Cannot write {path} ({e.strerror or e}), so your owner token is shown here instead.')
-    print('Your OWNER token (shown once; store it in a password manager, never give it to your agent; it opens '
-          f'{server}/pilot#owner where you can change limits or revoke this agent):')
-    print('  ' + owner)
-    return not path
+            os.close(fd)
+        except OSError as e:                        # a network file system may say only now that there is no room
+            why = why or e.strerror or type(e).__name__
+        if regular:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+    return why
+
+
+def _faithful(s, limit):
+    """`s` as one shell word that is exactly `s` in bash, zsh, PowerShell and Windows cmd: as it is when it is only
+    letters, digits and _.:/=+-, else in double quotes; None when no quoting keeps it in all of them (more than `limit`
+    characters, a character the terminal cannot show, a " $ ` ! or %, a curly double quote, a doubled or final
+    backslash) or for an empty value, as valun 0.7.2's join writes the join to run again (cli._faithful)."""
+    if not isinstance(s, str) or not s or len(s) > limit or not s.isprintable():
+        return None
+    if re.fullmatch(r'[A-Za-z0-9_.:/=+-]+', s):
+        return s
+    if any(ch in s for ch in '"$`!%“”„') or '\\\\' in s or s.endswith('\\'):
+        return None
+    return f'"{s}"'
+
+
+def _join_again(args, ctx, server, handle, operator):
+    """This join as a command to run again, with --owner-token-file FILE (valun 0.7.2's _join_command): this profile,
+    --sandbox or --invite-from-stdin as given, the handle, the operator, the public texts, --approvals (not the
+    default), --direct-tools and --server, each as given. A value that cannot be written as one shell word exactly is
+    named apart ("..., with the same --about as before")."""
+    words, apart = ['join'], []
+    if getattr(args, 'sandbox', False):
+        words.append('--sandbox')
+    elif args.invite_from_stdin:
+        words.append('--invite-from-stdin')
+    for flag, value, limit, stand_in in (('--handle', handle, 40, 'YOUR-HANDLE'), ('--operator', operator, 60, '"YOUR NAME"')):
+        shown = _faithful(value, limit)
+        words.append(f'{flag} {shown or stand_in}')
+        if not shown:
+            apart.append(flag)
+    for flag, value in (('--display-name', args.display_name), ('--about', args.about), ('--services', args.services),
+                        ('--wants', args.wants)):
+        if value:
+            shown = _faithful(value, 300)
+            if shown:
+                words.append(f'{flag} {shown}')
+            else:
+                apart.append(flag)
+    if args.approvals != 'conversation':
+        words.append(f'--approvals {args.approvals}')
+    if args.direct_tools:
+        words.append('--direct-tools')
+    words.append('--owner-token-file FILE')
+    if args.server:
+        shown = _faithful(server, 300)
+        if shown:
+            words.append(f'--server {shown}')
+        else:
+            apart.append('--server')
+    cmd = '`' + _hermes(ctx, ' '.join(words)) + '`'
+    return cmd + (' (with the same ' + ', '.join(apart) + ' as before)' if apart else '')
+
+
+def _token_file_refusal(args, ctx, server, handle, operator):
+    """Before anything is sent: why the owner token file this join would write (--owner-token-file, else
+    default_owner_token_file) cannot be made, as join's whole answer ("Nothing was sent: ..."; exit 2), or None when it
+    can, as valun 0.7.2's join does (fix inbox #174, as #167 for the client: until 0.7.2 the plugin sent the join, made
+    the participant and then printed its owner token on stdout, in an agent's context where an agent ran it). Refused:
+    a file that exists already (a symlink too, even a broken one: it may hold another identity's owner token, and join
+    never replaces a file), a folder that is missing, is not a folder, or cannot take a new file (home.new_file_refused:
+    a private probe file made there and removed again), and, since the review of 0.7.3, a file that cannot be made at
+    that very path or has no room there (_token_path_refused: made, written and removed again)."""
+    chosen = bool(args.owner_token_file)
+    path = args.owner_token_file if chosen else default_owner_token_file(handle)
+    folder = os.path.dirname(os.path.abspath(path))
+    default = '' if chosen else ' (join writes your owner token there when no --owner-token-file is given)'
+    if os.path.lexists(path):
+        why = (f'{path} exists already{default}, and join never replaces a file: it may hold another owner token. Name a '
+               'new file, one that does not exist yet')
+    elif not os.path.isdir(folder):
+        why = (f'the folder of {path}{default}, {folder}, does not exist, so your owner token could not be written '
+               'there. Name a new file in a folder that exists')
+    else:
+        denied = vh.new_file_refused(folder)
+        if denied is not None:
+            why = (f'this user may not create a file in {folder} ({denied.rstrip(".")}), where {path}{default} would '
+                   'go. Name a new file in a folder you can write')
+        else:
+            bad = _token_path_refused(path)
+            if bad is None:
+                return None
+            why = (f'{path}{default} cannot be written as a new file ({bad.rstrip(".")}), so your owner token could not '
+                   'be written there. Name another new file')
+    return (f'Nothing was sent: {why}, and run this join again: {_join_again(args, ctx, server, handle, operator)} '
+            "(FILE: a new file for this join's owner token).")
+
+
+def _token_sibling(path, n):
+    """The n-th new file beside `path` for an owner token, when `path` appeared after join checked it: FILE.1.txt,
+    FILE.2.txt, ... for FILE.txt (FILE.1 for a FILE with no extension)."""
+    base, ext = os.path.splitext(path)
+    return f'{base}.{n}{ext}'
+
+
+TOKEN_SIBLINGS = 20                     # how many new files beside the one named join tries (_token_sibling)
+
+
+def _not_private_note(path):
+    """On Windows, ' ...' when the owner token file at `path` is not owner-only after all (a drive that keeps no
+    permissions, such as WSL's share, or one that lets everyone in, as FAT32 and exFAT do, or an access list that lets
+    others in): move it, as valun 0.7.2's join says (cli._not_private_note). '' on POSIX, where it was created 0600, and
+    for a file only its owner can open. Never raises: the token is in that file already."""
+    if os.name != 'nt':
+        return ''
+    try:
+        a = vh.access_of(path)
+        if a['state'] == 'ok' and not (a['others'] or a['owner']):
+            return ''
+        who = (f'it can also be opened by {vh.who_else(a)}' if a['state'] == 'ok' else
+               'this drive keeps no permissions for it' if a['state'] == 'no_acl' else 'its permissions could not be read')
+    except Exception:  # noqa: BLE001 - what the file allows could not be read: say so, never fail here
+        who = 'its permissions could not be read'
+    return f' Windows could not make that file private ({who}), so move it somewhere only you can open.'
+
+
+def _pid_word(pid):
+    """A participant id the server sent, as a sentence names it: the id when it has a participant id's shape (vp_ + 12
+    hex), else PARTICIPANT_ID (the owner console shows it), never the server's text as it is."""
+    return pid if isinstance(pid, str) and re.fullmatch(r'vp_[0-9a-f]{12}', pid) else 'PARTICIPANT_ID'
+
+
+def _stderr_at_terminal():
+    """Is stderr a terminal, where a person reads it (not an agent's pipe or a file)? The only place the owner token is
+    ever shown, when no file can be written at all (_hand_over)."""
+    try:
+        return bool(sys.stderr.isatty())
+    except (AttributeError, ValueError, OSError):
+        return False
+
+
+def _hand_over(args, owner, server, handle=None, pid=None):
+    """The owner token, to the owner, once (decision D-3 c: right after the join answer, before anything else can fail),
+    as valun 0.7.2's join hands it over: written to a new private file (_write_new_private), --owner-token-file or, when
+    it is not given, default_owner_token_file, and never printed on stdout, where an agent that ran the join reads it
+    (fix inbox #174). Join refused an existing file, or a folder that could not take one, before anything was sent
+    (_token_file_refusal), so what is left is a file that appeared in between (another join, say): it is never replaced,
+    and the token goes to a new file beside it (_token_sibling), which join names. When no file can be written at all
+    (the folder stopped taking files, the disk filled up), the token is shown on stderr only when stderr is a terminal (a
+    person's, not an agent's pipe), and otherwise nowhere: join says how the owner gets a new one. False is returned
+    whenever the token is not in the file named (join then exits 1 once its other steps are done, so that a script that
+    relies on the file notices); True otherwise. args.owner_token_path: the file it was meant for;
+    args.owner_token_written: the absolute path of the file it went to, else None."""
+    chosen = bool(args.owner_token_file)
+    path = args.owner_token_file if chosen else default_owner_token_file(handle)
+    args.owner_token_path, args.owner_token_written = path, None
+    keep = ('Keep it private; never give it to your agent. Move it into your password manager once you have signed in '
+            f'to the owner console ({server}/pilot#owner) with it.')
+    try:
+        _write_new_private(path, owner + '\n')
+        args.owner_token_written = os.path.abspath(path)
+        print(f'Your OWNER token is in {path}'
+              + ('' if chosen else ' (no --owner-token-file was given: this is where join writes it)')
+              + '. ' + keep + _not_private_note(path))
+        return True
+    except FileExistsError:
+        failed = None
+        for n in range(1, TOKEN_SIBLINGS + 1):
+            other = _token_sibling(path, n)
+            try:
+                _write_new_private(other, owner + '\n')
+            except FileExistsError:
+                continue
+            except OSError as e:
+                failed = e
+                break
+            args.owner_token_written = os.path.abspath(other)
+            print(f'{path} appeared after join checked it, and join never replaces a file (it may hold another owner '
+                  f'token), so your OWNER token is in a new file beside it: {other}. ' + keep + _not_private_note(other))
+            return False
+        why = (f'{failed.strerror or failed}' if failed is not None else
+               f'{path} and the next {TOKEN_SIBLINGS} names beside it exist already')
+    except OSError as e:
+        why = f'{e.strerror or e}'
+    print(f'Cannot write {path} ({why}).')
+    if _stderr_at_terminal():
+        sys.stderr.write('Your OWNER token, shown once on this terminal only (never on stdout); keep it in a password '
+                         f'manager, never give it to your agent; it opens {server}/pilot#owner where you can change limits '
+                         f'or revoke this agent:\n  {owner}\n')
+        sys.stderr.flush()
+        print('Your owner token was shown once on this terminal (stderr), never on stdout: copy it into your password '
+              'manager now.')
+        return False
+    who = _pid_word(pid) if pid else 'your participant'
+    print('Your owner token was not shown either: stderr is not a terminal here, and an agent may be reading it. No copy '
+          f'of it is kept, so nobody can sign in to the owner console ({server}/pilot#owner) for {who}, to approve what it '
+          'holds for you, change limits or revoke the agent, until the operator of this server issues a new owner token '
+          'for it, at your request' + (' (on valun.tech: https://valun.tech/start#report).' if server == tools.DEFAULT_SERVER
+                                       else '.'))
+    return False
 
 
 def _whole(v):
@@ -456,6 +708,10 @@ def _join(args, ctx):
         args.handle = input('Handle (public, permanent; 3-24 letters, digits, _ or -, starting with a letter): ').strip().lower()
     if not args.operator:
         args.operator = input('Operator (public: who controls this agent, e.g. your name): ').strip()
+    refused = _token_file_refusal(args, ctx, server, args.handle, args.operator)
+    if refused:                         # the owner token could not be written: it would end up on screen, or nowhere
+        print(refused)
+        return 2
     store = _MemoryStore()
     c = vc.Client(store, server)
     try:
@@ -473,22 +729,26 @@ def _join(args, ctx):
         print('Joining failed (bad_response): the server did not answer an owner token.')
         return 1
     # Decision D-3 c: from here on the participant exists, and its owner token is in this answer only. It is handed over
-    # first (_hand_over: written to --owner-token-file, or shown), before enrolment and before any local write that can
-    # fail (Hermes's secret store, this profile's settings, the records); whatever fails after this, join says what is
-    # not done and how to finish, and exits 1.
-    handed = _hand_over(args, owner, server)
+    # first (_hand_over: written to --owner-token-file, or the default file, and never to stdout), before enrolment and
+    # before any local write that can fail (Hermes's secret store, this profile's settings, the records); whatever fails
+    # after this, join says what is not done and how to finish, and exits 1.
+    handed = _hand_over(args, owner, server, args.handle, j.get('participant_id'))
     step = ['enroll']
     try:
         finished = _join_steps(args, ctx, c, store, j, server, owner, sandbox, step)
     except Exception as e:  # noqa: BLE001 - the owner token is handed over already: say what stopped, never a traceback
         pid = _terminal_text(j.get('participant_id') or 'PARTICIPANT_ID', 40)
         print(f'Joining stopped ({_failure(e)}): {_terminal_text(e)}')
-        print(f'  Your participant {pid} exists, and your owner token was handed over above. Not done: '
+        print(f'  Your participant {pid} exists, and '
+              + ('your owner token was handed over above' if getattr(args, 'owner_token_written', None) else
+                 'join said above what became of your owner token') + '. Not done: '
               + _not_done(ctx, step[0], server, pid) + '.')
         print(f'Then run `{_hermes(ctx, "doctor")}`.' + _home_note(ctx))
         finished = False
     if not handed:
-        print(f'Exit code 1: {args.owner_token_file} was not written (your owner token is shown above instead).')
+        written = getattr(args, 'owner_token_written', None)
+        print(f'Exit code 1: {args.owner_token_path} was not written'
+              + (f': your owner token is in {written}.' if written else '.'))
     return 0 if finished and handed else 1
 
 
@@ -511,6 +771,23 @@ JOIN_NOT_DONE = {
     'approvals': ('console approvals in this profile: Hermes asks before each commitment until you run `{console_cmd}`'),
     'report': 'nothing that join sets (only the rest of its report)',
 }
+
+
+# What console approvals hold for the owner, and what they never hold, in valun 0.7.2's words (cli.CONSOLE_HOLDS and
+# CONSOLE_NEVER: the approval semantics of 2026-11-17, verified on staging). Join sets the owner mandate to
+# approve_above 0 and review_deliveries on, as `valun join --approvals console` does, and turns confirm_commitments off,
+# so Hermes asks about none of them (fix inbox #174: 0.7.2 said every commitment waited in the console).
+CONSOLE_HOLDS = ("your agent's offers and counter-offers, its acceptances (taking a job included), its guarantee offers, "
+                 'and the IOU or payment by transfer it signs when it accepts a delivery')
+CONSOLE_NEVER = ("honoring a guarantee call (your agent's own IOU, recorded at once), accepting, calling and releasing "
+                 'guarantees, deliveries, declines, withdrawals and disputes, your agent loosening or clearing a limit it '
+                 'recorded (never past your mandate), and the consents its client signs by itself')
+# What a decision in the console leaves, and its deadlines, from valun 0.7.2's CONSOLE_DECIDES (the review of 0.7.3:
+# "each until you approve it" read as if a held item waited for ever and rejecting undid it).
+CONSOLE_DECIDE = ('Decide a held IOU by the deadline its card shows: one still held when its hour at the tracker ends is '
+                  'never recorded and pays nothing; decide a held payment by transfer within 20 minutes of your agent '
+                  'signing it. Rejecting does not unsign: a rejected offer, acceptance or IOU stays on the server\'s '
+                  'record, still signed (a rejected payment by transfer is deleted).')
 
 
 def _not_done(ctx, step, server, pid):
@@ -619,8 +896,10 @@ def _join_steps(args, ctx, c, store, j, server, owner, sandbox, step):
         step[0] = 'report'
         print({'conversation': 'Approvals: before each offer, acceptance, credit note or payment with a note you hold, Hermes '
                                'asks you in the conversation.',
-               'console': f'Approvals: commitments wait for you in the owner console ({server}/pilot#owner), including '
-                          'accepting a delivery (its credit note or payment is made only after you approve it).',
+               'console': 'Approvals: console. Your agent signs at once and Hermes asks nobody; the Valun server then holds '
+                          f'for you in the owner console ({server}/pilot#owner), each until you approve or reject it, '
+                          + CONSOLE_HOLDS + '. Never held: ' + CONSOLE_NEVER + '. Nothing notifies you. ' + CONSOLE_DECIDE
+                          + ' (https://valun.tech/start#approve says what approving and rejecting do).',
                'none': 'Approvals: none. Your agent acts on its own within your limits '
                        f"(at most {vc.amount_text(limits.get('max_issue_per_deal'), c.unit)} per deal, "
                        f"{vc.amount_text(limits.get('max_issue_outstanding'), c.unit)} owed in total)."}[args.approvals])
@@ -1063,8 +1342,12 @@ def _attempts(args, ctx):
 def _ergo(args, ctx):
     """`hermes valun ergo ...`: settlement on Ergo testnet for this profile's agent (the testnet network only), as the
     valun package's `valun ergo` does it. The owner runs it at a terminal (never the agent: _run_cli refuses inside an
-    agent session). The core checks what the tracker built against the chain before this agent's key signs it; reserve
-    and redeem send nothing without --broadcast. tERG are test coins with no monetary value."""
+    agent session). The core checks what the tracker built against the chain before this agent's key signs it. Without
+    --broadcast, reserve and redeem still ask the Valun server, with the agent's token, for what they sign (reserve: the
+    reserve's payment request, POST /reserves/create, from which the core builds the transaction from this agent's own
+    boxes; redeem: the transaction, POST /redemption/build) and read the Ergo testnet node that GET /chain names, but send no
+    transaction: reserve --broadcast sends it to that node, redeem --broadcast submits it through the server (POST
+    /redemption/submit). tERG are test coins with no monetary value."""
     action = getattr(args, 'valun_ergo', None)
     if action not in ('address', 'chain', 'reserves', 'reserve', 'redeem'):
         print(f'usage: `{_hermes(ctx, "ergo address|chain|reserves|reserve NANO [--broadcast]|redeem ISSUER AMOUNT [--broadcast]")}`')

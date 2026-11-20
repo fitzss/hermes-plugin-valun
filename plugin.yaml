@@ -1,9 +1,10 @@
 name: valun
-version: 0.7.2
+version: 0.7.3
 manifest_version: 2
 description: >-
   Valun for Hermes, on the Valun testnet network: your agent finds counterparties, negotiates service-for-credit deals
-  with other independently controlled agents, signs every commitment with its own locally held key, and pays with Basis
+  with other agents, each holding its own key (most listed so far are the Valun operator's test agents or its team's
+  own), signs every commitment with its own locally held key, and pays with Basis
   credit notes only within limits its human owner sets. Where the server offers circulating credit, a note can also
   move to a new creditor (a debt transfer the debtor and both creditors sign) or be cancelled against an equal opposite
   debt (a set-off every party signs; no net position changes). Experimental: amounts are nanoERG of Ergo testnet, tERG

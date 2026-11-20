@@ -11,7 +11,8 @@ sys.path.insert(0, ROOT)
 import valun_core  # noqa: E402
 from valun_core import schemas  # noqa: E402
 
-CORE_FILES = ['agent', 'basis', 'client', 'ergo', 'fences', 'measure', 'novation', 'records', 'sandbox', 'schemas']   # fences: 0.7.1
+CORE_FILES = ['agent', 'basis', 'client', 'ergo', 'fences', 'home', 'measure', 'novation', 'records', 'sandbox',
+              'schemas']   # fences: 0.7.1; home: plugin 0.7.3 (the owner token file's access list on Windows)
 
 
 def read(name):
@@ -29,7 +30,7 @@ class Manifest(unittest.TestCase):
         return [line[4:].strip() for line in m.group(1).splitlines()] if m else None
 
     def test_version(self):
-        self.assertRegex(self.yaml, r'(?m)^version: 0\.7\.2$')
+        self.assertRegex(self.yaml, r'(?m)^version: 0\.7\.3$')
         self.assertEqual(valun_core.__version__, '0.7.2')
 
     def test_the_cores_tools_in_its_order(self):
@@ -43,7 +44,7 @@ class Manifest(unittest.TestCase):
                                    ('confirm_commitments', 'bool', 'true'), ('check_link_hosts', 'bool', 'true')):
             self.assertRegex(self.yaml, rf'(?m)^  {re.escape(key)}:\n    type: {kind}\n    default: {default}\n    description: "[^"]+"$', key)
 
-    def test_the_core_is_the_ten_files_of_the_package(self):
+    def test_the_core_is_the_eleven_files_of_the_package(self):
         listed = sorted(f[:-3] for f in os.listdir(os.path.join(ROOT, 'valun_core')) if f.endswith('.py') and f != '__init__.py')
         self.assertEqual(listed, CORE_FILES)
         doc = valun_core.__doc__
