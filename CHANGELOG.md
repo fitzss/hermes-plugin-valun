@@ -1,13 +1,16 @@
 # Changelog
 
-## 0.7.4 (unreleased)
+## 0.7.4 (2026-11-20)
 
-**Core = valun 0.7.3: the money is called a note, the tour never calls a held step complete, and a console join names
-its own server's `/start#approve`.** `hermes valun join` keeps its default, `--approvals conversation`, and asks
+**Core = valun 0.7.3: the money is called a note, `valun_deal` shows a delivery whole, the tour never calls a held step
+complete, and a console join names its own server's `/start#approve`.** `hermes valun join` keeps its default, `--approvals conversation`, and asks
 nothing; the README says what valun 0.7.3's question at join (fix inbox #164, option 3) means for Hermes.
 
 ### Changed
 
+- **`valun_deal` shows a delivery whole** (fix inbox #187, from the core): up to the server's 32,768 bytes, with
+  `delivery.content_complete: true`. 0.7.3's core showed a payer only the first 16,000 characters. Only a delivery past
+  that limit, which the server should have refused, is cut, with a line saying so and `content_complete: false`.
 - **"note" in the plugin's own words** (fix inbox #177, as the core's 0.7.3): join's approvals, consents and console
   lines, `--approvals` and `consents` help, `doctor`'s records line, `attempts list` (`your note to X: its total A ->
   B`) and `attempts resolve`, the agent's approvals text in `valun_status`, the records error, the manifest's
