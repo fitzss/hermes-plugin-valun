@@ -102,7 +102,7 @@ def _setup_cli(subparser, ctx):
     pf.add_argument('--display-name', dest='valun_display_name', help='your public display name')
     pf.add_argument('--public-vouches', dest='valun_public_vouches', choices=('on', 'off'),
                     help='on: the guarantees between your agent and agents that also chose this are public on both agent '
-                         'pages (who backed whom, the cap, how calls were honored; never the creditor); off hides them again')
+                         'pages (who guaranteed whom, the cap, how calls were honored; never the creditor); off hides them again')
     j = subs.add_parser('join', help='join Valun (--sandbox: no invite needed) and connect this agent, in one step')
     j.add_argument('--sandbox', action='store_true',
                    help='join without an invite as a self-serve participant: small limits, 7 days renewed while your agent is '
@@ -124,16 +124,19 @@ def _setup_cli(subparser, ctx):
                         'its folder is missing or cannot take a new file, or the file cannot be written there (join makes '
                         'it, writes it and removes it again to check). The token is never printed on stdout')
     j.add_argument('--approvals', choices=['conversation', 'console', 'none'], default='conversation',
-                   help="where commitments are approved: 'conversation' (Hermes asks you before each one; default), "
-                        "'console' (your agent signs at once and Hermes asks nobody; the Valun server holds its offers, "
-                        'counter-offers, acceptances and guarantee offers, and the IOU or payment by transfer it signs when '
-                        'it accepts a delivery, for you in the web owner console; never an honor of a guarantee call, a '
-                        "guarantee's acceptance, call or release, a limit your agent loosens, or a consent), or 'none' "
-                        '(autonomous within your limits)')
+                   help="where commitments are approved: 'conversation' (Hermes asks you before each one; the default, "
+                        'also with --sandbox: this join does not ask which you want, as `valun join --sandbox` does since '
+                        "valun 0.7.3; it needs a person in the conversation to answer), 'console' (your agent signs at "
+                        'once and Hermes asks nobody; the Valun server holds its offers, counter-offers, acceptances and '
+                        'guarantee offers, and the note or payment by transfer it signs when it accepts a delivery, for '
+                        'you in the web owner console; never an honor of a guarantee call, a '
+                        "guarantee's acceptance, call or release, a limit your agent loosens, or a consent; choose it only "
+                        "when a person will approve there), or 'none' (autonomous within your limits: for an agent whose "
+                        'commitments nobody will approve)')
     j.add_argument('--direct-tools', action='store_true',
                    help='expose the Valun tools to the model directly (sets tools.tool_search.enabled=off in THIS profile); '
                         'recommended for a dedicated Valun profile and for small models')
-    co = subs.add_parser('consents', help='circulating credit: the consents (set-offs, debt transfers) waiting for your '
+    co = subs.add_parser('consents', help='circulating credit: the consents (set-offs, transfers) waiting for your '
                                           'Valun client; with --process, sign what your consent policy allows now')
     co.add_argument('--process', dest='valun_process', action='store_true',
                     help='sign the consents your consent policy and owner mandate allow, and refuse the others (you, the owner, run this)')
@@ -339,7 +342,7 @@ def _doctor(ctx):
     if store.unreadable is not None:
         problems.append(f'Your Valun client cannot read its records ({_terminal_text(store.unreadable)}), so it signs nothing. '
                         f'Fix: restore {store.path or "plugin-data/valun/valun-records.json"} from a backup. Move it away only '
-                        'if you know it holds nothing you need: it is your record of the credit notes and payments your agent '
+                        'if you know it holds nothing you need: it is your record of the notes and payments your agent '
                         'signed.')
     if pid and real(tok) and real(sec):
         try:
@@ -773,20 +776,20 @@ JOIN_NOT_DONE = {
 }
 
 
-# What console approvals hold for the owner, and what they never hold, in valun 0.7.2's words (cli.CONSOLE_HOLDS and
-# CONSOLE_NEVER: the approval semantics of 2026-11-17, verified on staging). Join sets the owner mandate to
-# approve_above 0 and review_deliveries on, as `valun join --approvals console` does, and turns confirm_commitments off,
+# What console approvals hold for the owner, and what they never hold, in valun 0.7.3's words (cli.CONSOLE_HOLDS and
+# CONSOLE_NEVER, which say "note" since fix inbox #177: the approval semantics of 2026-11-17, verified on staging).
+# Join sets the owner mandate to approve_above 0 and review_deliveries on, as `valun join --approvals console` does, and turns confirm_commitments off,
 # so Hermes asks about none of them (fix inbox #174: 0.7.2 said every commitment waited in the console).
 CONSOLE_HOLDS = ("your agent's offers and counter-offers, its acceptances (taking a job included), its guarantee offers, "
-                 'and the IOU or payment by transfer it signs when it accepts a delivery')
-CONSOLE_NEVER = ("honoring a guarantee call (your agent's own IOU, recorded at once), accepting, calling and releasing "
+                 'and the note or payment by transfer it signs when it accepts a delivery')
+CONSOLE_NEVER = ("honoring a guarantee call (your agent's own note, recorded at once), accepting, calling and releasing "
                  'guarantees, deliveries, declines, withdrawals and disputes, your agent loosening or clearing a limit it '
                  'recorded (never past your mandate), and the consents its client signs by itself')
 # What a decision in the console leaves, and its deadlines, from valun 0.7.2's CONSOLE_DECIDES (the review of 0.7.3:
 # "each until you approve it" read as if a held item waited for ever and rejecting undid it).
-CONSOLE_DECIDE = ('Decide a held IOU by the deadline its card shows: one still held when its hour at the tracker ends is '
+CONSOLE_DECIDE = ('Decide a held note by the deadline its card shows: one still held when its hour at the tracker ends is '
                   'never recorded and pays nothing; decide a held payment by transfer within 20 minutes of your agent '
-                  'signing it. Rejecting does not unsign: a rejected offer, acceptance or IOU stays on the server\'s '
+                  'signing it. Rejecting does not unsign: a rejected offer, acceptance or note stays on the server\'s '
                   'record, still signed (a rejected payment by transfer is deleted).')
 
 
@@ -894,12 +897,17 @@ def _join_steps(args, ctx, c, store, j, server, owner, sandbox, step):
             step[0] = 'approvals'
             ctx.set_config('confirm_commitments', False)
         step[0] = 'report'
-        print({'conversation': 'Approvals: before each offer, acceptance, credit note or payment with a note you hold, Hermes '
-                               'asks you in the conversation.',
+        # Fix inbox #164 option 3, for Hermes: this join keeps its default (conversation) and asks nothing; the line says
+        # what an agent nobody answers for needs. Conversation and none set the same owner mandate (approve_above: the
+        # per-deal cap, _set_mandate) and differ only in confirm_commitments, so turning it off is --approvals none.
+        print({'conversation': 'Approvals: before each offer, acceptance, note you issue or payment with a note you hold, '
+                               'Hermes asks you in the conversation. Where nobody is there to answer, Hermes refuses and '
+                               'nothing is signed: for an agent nobody approves for, run '
+                               f'`{_setting_cmd(ctx, "confirm_commitments", "false")}` (the same as --approvals none).',
                'console': 'Approvals: console. Your agent signs at once and Hermes asks nobody; the Valun server then holds '
                           f'for you in the owner console ({server}/pilot#owner), each until you approve or reject it, '
                           + CONSOLE_HOLDS + '. Never held: ' + CONSOLE_NEVER + '. Nothing notifies you. ' + CONSOLE_DECIDE
-                          + ' (https://valun.tech/start#approve says what approving and rejecting do).',
+                          + f' ({server}/start#approve says what approving and rejecting do).',
                'none': 'Approvals: none. Your agent acts on its own within your limits '
                        f"(at most {vc.amount_text(limits.get('max_issue_per_deal'), c.unit)} per deal, "
                        f"{vc.amount_text(limits.get('max_issue_outstanding'), c.unit)} owed in total)."}[args.approvals])
@@ -907,14 +915,15 @@ def _join_steps(args, ctx, c, store, j, server, owner, sandbox, step):
     if circulating:
         if sandbox:
             print('Consents: your Valun client signs, by itself, set-offs that leave your net position unchanged, transfers of '
-                  'your own debt and payments to you by transfer from the sandbox agents (up to '
+                  'notes you issued to a new holder and payments to you by transfer from the sandbox agents (up to '
                   f"{vc.amount_text(cap, c.unit)} each), before Valun tool calls that are not read-only; set-offs and payments to "
                   'you also before valun_status and valun_inbox, at most once a minute (process_consents on; nothing runs '
                   f'in the background). Turn it off: `{_setting_cmd(ctx, "process_consents", "false")}`.')
         else:
             print('Consents: your Valun client signs none by itself (process_consents off). Once you turn it on '
                   f'(`{_setting_cmd(ctx, "process_consents", "true")}`) it signs set-offs that leave your net position '
-                  'unchanged and transfers of your own debt; payments to you by transfer stay off (consents.as_new_creditor). '
+                  'unchanged and transfers of notes you issued to a new holder; payments to you by transfer stay off '
+                  '(consents.as_new_creditor). '
                   f'`{_hermes(ctx, "consents")}` shows what waits.')
     print(f'Next: `{_hermes(ctx, "doctor")}`, then talk to your agent: `{_hermes(ctx, "-t valun", sub="chat")}`.' + _home_note(ctx))
     return finished
@@ -1093,8 +1102,8 @@ ENDED_AT_SERVER_PAID = ('ended by the server ({state}: {why}), which says it nev
                         '{paid}: nothing to resolve')
 # Why a resolution changes only your client's records (Client.resolution_plan local).
 LOCAL_WHY = {
-    'note': ("The server holds no payment attempt for a credit note: only your client's records change (your owner token is "
-             'checked first, used once and not stored).'),
+    'note': ("The server holds no payment attempt for a note you issued: only your client's records change (your owner "
+             'token is checked first, used once and not stored).'),
     'no_circulation': ("This server offers no circulating credit, so only your client's records change (your owner token is "
                        'checked first, used once and not stored).'),
     'no_server_id': ("Your client did not record the server's id of this transfer (its request got no answer, or the server "
@@ -1123,7 +1132,7 @@ def _attempt_line(c, r):
     when = datetime.fromtimestamp(r['timestamp'] / 1000, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
     prior = r['prior'] if r['prior'] is not None else '?'
     if r['route'] == 'note':
-        what = f"your credit note to {_who_key(c, rcp)}: your debt {prior} -> {r['total']} {c.unit}"
+        what = f"your note to {_who_key(c, rcp)}: its total {prior} -> {r['total']} {c.unit}"
     else:
         what = f"paying with the note of {_who_key(c, i)}: your claim {prior} -> {r['total']} {c.unit}"
     sid = f", server id {r['attempt_id']}" if r.get('attempt_id') else ''

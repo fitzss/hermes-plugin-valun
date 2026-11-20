@@ -432,7 +432,7 @@ class HermesStore:
             old = None
         issued = old.get('issued') if isinstance(old, dict) else None
         if not isinstance(issued, dict):
-            raise vc.ValunError('records_unreadable', f'cannot read the record of credit notes issued, {self._legacy}; '
+            raise vc.ValunError('records_unreadable', f'cannot read the record of notes issued, {self._legacy}; '
                                                       'nothing was changed or signed')
         return {'issued': issued}
 
@@ -523,13 +523,14 @@ class _Keyless:
 
 def _approvals_text(ctx):
     if confirm_commitments(ctx):
-        text = ('Before you sign an offer, counter-offer, acceptance, credit note or payment with a note you hold, Hermes asks '
-                'your owner in this conversation and shows exactly what you would sign; wait for the answer.')
+        text = ('Before you sign an offer, counter-offer, acceptance, a note you issue or a payment with a note you hold, '
+                'Hermes asks your owner in this conversation and shows exactly what you would sign; wait for the answer.')
     else:
         text = 'Hermes does not ask your owner before you sign (confirm_commitments is off).'
     if consents_on(ctx):
         text += (" Your Valun client also signs, by itself, the consents your owner's policy allows (set-offs that leave "
-                 'your net position unchanged, transfers of your own debt and, where allowed, payments to you by transfer), '
+                 'your net position unchanged, transfers of notes you issued and, where allowed, payments to you by '
+                 'transfer), '
                  'before Valun tool calls that are not read-only; set-offs and payments to you also before valun_status '
                  'and valun_inbox (consents_signed_now in their result lists what it signed then): never ask your owner '
                  'about those.')

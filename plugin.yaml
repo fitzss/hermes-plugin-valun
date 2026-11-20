@@ -1,17 +1,17 @@
 name: valun
-version: 0.7.3
+version: 0.7.4
 manifest_version: 2
 description: >-
   Valun for Hermes, on the Valun testnet network: your agent finds counterparties, negotiates service-for-credit deals
   with other agents, each holding its own key (most listed so far are the Valun operator's test agents or its team's
   own), signs every commitment with its own locally held key, and pays with Basis
-  credit notes only within limits its human owner sets. Where the server offers circulating credit, a note can also
-  move to a new creditor (a debt transfer the debtor and both creditors sign) or be cancelled against an equal opposite
-  debt (a set-off every party signs; no net position changes). Experimental: amounts are nanoERG of Ergo testnet, tERG
-  are test coins with no monetary value, and a note can be redeemed on Ergo testnet against its issuer's tERG reserve,
-  if it has one. Since 0.6.0 an agent can back another agent's IOU to one creditor with a capped guarantee, and pay a
-  call with its own credit note; since 0.6.1 a guarantee can name the deals it backs, and then covers only what is unpaid
-  of them. Since 0.6.2 `hermes valun profile` shows or changes the agent's public profile, and with
+  notes only within limits its human owner sets. Where the server offers circulating credit, a note can also
+  move to a new holder (a transfer its issuer and both holders sign) or be cleared in a loop of notes (a set-off every
+  party signs; no net position changes). Experimental: amounts are nanoERG of Ergo testnet, tERG
+  are test coins with no monetary value, and a note can be redeemed on Ergo testnet against a tERG reserve locked under
+  the key that signed it, if one was posted. Since 0.6.0 an agent can guarantee what another agent owes one creditor,
+  up to a cap, and pay a call with its own note; since 0.6.1 a guarantee can name the deals it guarantees, and then
+  covers only what is unpaid of them. Since 0.6.2 `hermes valun profile` shows or changes the agent's public profile, and with
   `--public-vouches on` the guarantees between it and agents that also chose this are public (never the creditor).
 author: Valun
 license: MIT
@@ -61,23 +61,23 @@ config_schema:
   confirm_commitments:
     type: bool
     default: true
-    description: "Ask through Hermes's approval prompt before the agent signs an offer, counter-offer, acceptance, credit note or payment with a note it holds, offers or honors a guarantee, releases one it holds, or loosens a recorded limit"
+    description: "Ask through Hermes's approval prompt before the agent signs an offer, counter-offer, acceptance, a note it issues or a payment with a note it holds, offers or honors a guarantee, releases one it holds, or loosens a recorded limit"
   process_consents:
     type: bool
     default: false
-    description: "Let your Valun client sign by itself the consents your consent policy and owner mandate allow (net-neutral set-offs, transfers of your own debt, payments to you by transfer), before Valun tool calls that are not read-only, and the set-offs and payments to you also before valun_status and valun_inbox, each at most once a minute; nothing runs in the background. Off: it signs none by itself, and withdraws the consent roles it declared to the server. `hermes valun join --sandbox` turns it on"
+    description: "Let your Valun client sign by itself the consents your consent policy and owner mandate allow (set-offs that leave your net position unchanged, transfers of notes you issued, payments to you by transfer), before Valun tool calls that are not read-only, and the set-offs and payments to you also before valun_status and valun_inbox, each at most once a minute; nothing runs in the background. Off: it signs none by itself, and withdraws the consent roles it declared to the server. `hermes valun join --sandbox` turns it on"
   consents.setoff:
     type: bool
     default: false
-    description: "Consent policy: sign set-offs that cancel equal debts around a cycle (your net position does not change)"
+    description: "Consent policy: sign set-offs that clear loops of notes you hold and issued (your net position does not change)"
   consents.as_issuer:
     type: bool
     default: false
-    description: "Consent policy: sign transfers of your own debt to a new creditor (what you owe in total does not change)"
+    description: "Consent policy: sign transfers that move notes you issued to a new holder (what you owe in all does not change)"
   consents.as_new_creditor:
     type: bool
     default: false
-    description: "Consent policy: accept payments to you by debt transfer, of notes from issuers your owner mandate accepts"
+    description: "Consent policy: accept payments to you by transfer, of notes from issuers your owner mandate accepts"
   consents.max_PC:
     type: int
     default: 50

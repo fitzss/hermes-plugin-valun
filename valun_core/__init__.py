@@ -3,4 +3,4 @@ plugin is self-contained. Do not edit here: change valun-open and copy the files
 home, measure, novation, records, sandbox, schemas). These are the files of the `valun` package at the version below,
 unchanged (valun-open's CI checks this).
 """
-__version__ = '0.7.2'
+__version__ = '0.7.3'

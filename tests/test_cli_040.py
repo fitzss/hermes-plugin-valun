@@ -199,6 +199,46 @@ class Join(Base):
         self.assertIn('your Valun client signs none by itself (process_consents off)', out)
         self.assertNotIn('consent_policy', tools.HermesStore(ctx).state)
 
+    # ----- 0.7.4: fix inbox #176 and #164 option 3, for Hermes -----
+    def test_a_console_join_links_to_the_joined_servers_own_start_approve(self):
+        ctx = Ctx()
+        server = Server(join_routes(self))
+        code, out = self.run_cli(ctx, server, 'join', '--sandbox', '--handle', 's1', '--operator', 'Tester', '--server', SERVER,
+                                 '--approvals', 'console')
+        self.assertEqual(code, 0, out)
+        self.assertIn(f'Approvals: console. Your agent signs at once and Hermes asks nobody; the Valun server then holds for '
+                      f'you in the owner console ({SERVER}/pilot#owner)', out)
+        self.assertIn(f' ({SERVER}/start#approve says what approving and rejecting do).', out)
+        self.assertNotIn('valun.tech', out + self.err)
+        self.assertIn('and the note or payment by transfer it signs when it accepts a delivery', out)
+        self.assertNotIn('IOU', out)
+
+    def test_the_default_join_asks_nothing_and_says_how_an_unwatched_agent_turns_hermes_asking_off(self):
+        ctx = Ctx()
+        server = Server(join_routes(self))
+        code, out = self.run_cli(ctx, server, 'join', '--sandbox', '--handle', 's1', '--operator', 'Tester', '--server', SERVER,
+                                 tty=True)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn('Will a person approve', out)       # unlike `valun join --sandbox` 0.7.3, nothing is asked
+        self.assertIs(ctx.config['confirm_commitments'], True)
+        self.assertIn('Hermes asks you in the conversation. Where nobody is there to answer, Hermes refuses and nothing is '
+                      'signed: for an agent nobody approves for, run '
+                      '`hermes -p valun-test config set plugins.entries.valun.settings.confirm_commitments false` (the same '
+                      'as --approvals none).', out)
+        conversation = server.log[-1][:3]
+        ctx2 = Ctx()
+        server2 = Server(join_routes(self))
+        os.unlink(self.default_token_file())
+        code, out2 = self.run_cli(ctx2, server2, 'join', '--sandbox', '--handle', 's1', '--operator', 'Tester', '--server',
+                                  SERVER, '--approvals', 'none')
+        self.assertEqual(code, 0, out2)
+        # The switch is what --approvals none does: the same owner mandate, and only confirm_commitments differs.
+        self.assertEqual(server2.log[-1][:3], conversation)
+        self.assertEqual(conversation, ('PUT', '/pilot/v1/owner/mandate', {'approve_above': 5}))
+        self.assertIs(ctx2.config['confirm_commitments'], False)
+        self.assertEqual({k: v for k, v in ctx.config.items() if k != 'confirm_commitments'},
+                         {k: v for k, v in ctx2.config.items() if k != 'confirm_commitments'})
+
     def test_a_429_at_the_mandate_step_keeps_the_owner_token_and_hermes_asking(self):
         token_file = os.path.join(self.dir, 'owner.txt')
         seen = []

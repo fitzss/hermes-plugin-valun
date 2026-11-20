@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.7.4 (unreleased)
+
+**Core = valun 0.7.3: the money is called a note, the tour never calls a held step complete, and a console join names
+its own server's `/start#approve`.** `hermes valun join` keeps its default, `--approvals conversation`, and asks
+nothing; the README says what valun 0.7.3's question at join (fix inbox #164, option 3) means for Hermes.
+
+### Changed
+
+- **"note" in the plugin's own words** (fix inbox #177, as the core's 0.7.3): join's approvals, consents and console
+  lines, `--approvals` and `consents` help, `doctor`'s records line, `attempts list` (`your note to X: its total A ->
+  B`) and `attempts resolve`, the agent's approvals text in `valun_status`, the records error, the manifest's
+  description and settings, `after-install.md` and the README. A note is redeemed only against a tERG reserve locked
+  under the key that signed it; a set-off clears a loop of notes, the same amount from each, and settles nothing; a
+  netting is committed, not final; a guarantee guarantees what an issuer owes. Setting names, tool names, arguments
+  and JSON keys are unchanged (`consents.as_issuer`, `consents.as_new_creditor`, `credit_note`, ...). The README's
+  tagline is unchanged; its line below now says what valun-open's says.
+- **A console join named https://valun.tech/start#approve on any server** (fix inbox #176, the plugin's side). It now
+  names the joined server's own `/start#approve`, beside that server's owner console; on valun.tech the line is
+  unchanged.
+- **What option 3 means for Hermes** (fix inbox #164). Since valun 0.7.3, `valun join --sandbox` without `--approvals`
+  asks whether a person will approve, and refuses without a terminal. `hermes valun join` does not ask, and its
+  default stays `--approvals conversation`, also with `--sandbox`: Hermes asks in the conversation before each
+  commitment. Join's conversation line now says that where nobody is there to answer, Hermes refuses and nothing is
+  signed, and it prints the setting that turns Hermes's question off for an agent nobody approves for
+  (`confirm_commitments false`, which is what `--approvals none` sets: the owner mandate join sets is the same for
+  both). The `--approvals` help says when to choose each mode: conversation with a person in the conversation, none
+  when nobody will approve, console only when a person will approve in the owner console. A new README section,
+  "Nobody to approve?", says the same. Hermes's refusal where nobody can answer is from Hermes v0.23.3's source
+  (`tools/approval.py`, and `approvals.cron_mode`, `single_query_mode` and `unattended_mode`, which default to
+  `deny`), not from a run.
+
+### Core
+
+- `valun_core/` is valun 0.7.3, unchanged (11 files; agent, client, novation, sandbox and schemas changed). Through
+  it: the testnet settlement labels are the server's word for word; `valun_status`'s tour keeps the step held for the
+  owner, says "Waiting for your owner: approval va_... (deal vd_...) ...", and adds `waiting_for_your_owner` (fix inbox
+  #175); `valun_directory` ranks sandbox-exact first and labels the agents the server runs; the tools' descriptions,
+  approval texts and errors say "note". See valun-open's CHANGELOG for 0.7.3.
+
+### Tests
+
+- `tests/test_cli_040.py`: a console join links to the joined server's own `/start#approve`, names no valun.tech and
+  says "note"; the default join asks nothing at a terminal, keeps Hermes asking, prints the switch to none, and sets
+  the same owner mandate and settings as `--approvals none` but for `confirm_commitments`.
+  `tests/test_manifest_040.py`: the plugin is 0.7.4 and its core 0.7.3.
+
+### Checked locally (2026-11-20)
+
+- Unit tests (`python -B -m unittest discover -s tests`): 202 tests. Windows 11, Python 3.14.7: OK with 3 skipped (the
+  symlink test, and the two that need Hermes). Ubuntu on WSL, Python 3.14.4: OK with 3 skipped (the Windows test and
+  the two that need Hermes), and OK with only the Windows test skipped in Hermes v0.23.3's own venv.
+- `hermes plugins validate --install-deps` with Hermes Agent v0.23.3 (`caafe53`, installed from its tag, Python
+  3.14.4, Ubuntu on WSL, its own Hermes home): validation passed, security scan safe.
+- valun-open's `scripts/release.py check --plugin-dir` at the 0.7.3 candidate: the core is valun 0.7.3, unchanged, 11
+  files; `spec/vectors/check_python.py --client plugin`: 1461 checks, 0 disagreements in failing tiers.
+
 ## 0.7.3 (2026-11-19)
 
 ### Changed

@@ -12,12 +12,13 @@ your participant, generates your agent's key on this machine, writes your **owne
 `valun-owner-token-HANDLE.txt` in your home folder, or the new file you name with `--owner-token-file FILE`; keep it private; don't give it to
 the agent), and stores the agent's credentials in this profile. If that file exists already or cannot be written there, join sends nothing
 and says what to run instead. Then talk to your agent: `hermes -p valun chat -t valun`. Before it signs an offer, acceptance,
-credit note or payment, it asks you.
+note or payment, it asks you (the default, `--approvals conversation`, also with `--sandbox`). If nobody will be there to
+answer, nothing is signed: join with `--approvals none` instead (the README's "Nobody to approve?" says why).
 
-Amounts are nanoERG of Ergo testnet (1 tERG = 1,000,000,000 nanoERG): tERG are test coins with no monetary value. A credit note is an
-outstanding promise; where the server offers circulating credit it can move to a new creditor (a debt transfer the debtor and both creditors
-sign) or be cancelled against an equal opposite debt (a set-off every party signs; no net position changes). Its holder can redeem it on Ergo
-testnet against its issuer's tERG reserve, if the issuer has one: `hermes -p valun valun ergo chain|reserves|redeem` (see the README). Your
+Amounts are nanoERG of Ergo testnet (1 tERG = 1,000,000,000 nanoERG): tERG are test coins with no monetary value. A note is a promise
+to pay that stays outstanding; where the server offers circulating credit it can move to a new holder (a transfer its issuer and both holders
+sign) or be cleared in a loop of notes (a set-off every party signs; no net position changes). Its holder can redeem it on Ergo testnet
+against a tERG reserve locked under the key that signed it, if one was posted: `hermes -p valun valun ergo chain|reserves|redeem` (see the README). Your
 client signs consents by itself only with `process_consents` on (`--sandbox` turns it on; off for invited joins), before Valun tool calls,
 never in the background.
 
