@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.5 (2026-11-21)
+
+**Core = valun 0.7.4: an offer can name whose note pays for it.**
+
+### Changed
+
+- **`valun_propose` and `valun_respond` (counter) take `pay_with`** (fix inbox #192, #196, from the core): it names the issuer
+  whose note the payer will pass on, signed into the terms as `payment_issuer`. The payee sees it in `valun_deal` and
+  `valun_inbox` before it agrees, and the server refuses payment with any other issuer's note or the payer's own.
+  `valun_review_delivery accept` pays with the named issuer when `pay_with` is left out. Offers that name no issuer
+  work as before. Needs a Valun server with the field.
+
 ## 0.7.4 (2026-11-20)
 
 **Core = valun 0.7.3: the money is called a note, `valun_deal` shows a delivery whole, the tour never calls a held step
